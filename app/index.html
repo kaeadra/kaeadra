@@ -163,6 +163,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .pill.out{background:var(--bad-soft);color:var(--bad)}
 .pill.neutral{background:var(--line-soft);color:var(--muted)}
 .pill.acc{background:var(--accent-soft);color:var(--accent)}
+.pill.code{background:var(--line-soft);color:var(--ink-2);font-family:"IBM Plex Mono",monospace;direction:ltr;font-weight:500;letter-spacing:.02em}
 
 /* list rows */
 .list{display:flex;flex-direction:column}
@@ -387,6 +388,13 @@ const Store = (() => {
     return () => subs.get(path).delete(f);
   }
 
+  /* حجز قصير على مستند — لمنع تنفيذ عملية مرة واحدة من جهازين معاً */
+  async function lease(path, holder, ttlMs) {
+    if (!db) return true;
+    try { const r = await db.doc(path).acquire({ holder, ttlMs }); return !!r.acquired; }
+    catch (e) { return true; }
+  }
+
   /* إضافة قيد إلى دفتر الشهر، مع تقسيم تلقائي إذا امتلأ المستند */
   async function append(coll, dateStr, entry) {
     const m = monthOf(dateStr);
@@ -443,7 +451,7 @@ const Store = (() => {
     return false;
   }
 
-  return { init, get, set, del, list, watch, watchDoc, append, readMonth, mutate, get isLive() { return live; } };
+  return { init, get, set, del, list, watch, watchDoc, lease, append, readMonth, mutate, get isLive() { return live; } };
 })();
 
 /* ---------- 3. الحالة ---------- */
@@ -454,7 +462,8 @@ const DEFAULT_SETTINGS = {
   cash: 0,
   lowStock: 2,
   partners: [],
-  otherAssets: []
+  otherAssets: [],
+  customGroups: []
 };
 const CATS = [
   { id: 'accessory', label: 'اكسسوارات', stock: true },
@@ -466,6 +475,87 @@ const CATS = [
 ];
 const catOf = id => CATS.find(c => c.id === id) || CATS[0];
 const isStocked = p => catOf(p.cat).stock;
+
+/* أنواع القطع — لكل نوع بادئة كود ثابتة وفئة افتراضية.
+   الترتيب مقصود: الأخص قبل الأعم (شاحن سيارة قبل شاحن، عدة قبل كروت). */
+const GROUPS = [
+  { name: 'بافلة',            prefix: 'SPK', cat: 'accessory', kw: ['بافلة'] },
+  { name: 'هيدفون',           prefix: 'HDP', cat: 'accessory', kw: ['هيدفون'] },
+  { name: 'إيربود',           prefix: 'ABD', cat: 'accessory', kw: ['airbod', 'ايربود', 'إيربود'] },
+  { name: 'سماعات',           prefix: 'ERP', cat: 'accessory', kw: ['سماعات', 'سماعة'] },
+  { name: 'شاحن سيارة',       prefix: 'CCH', cat: 'accessory', kw: ['شاحن سيارة'] },
+  { name: 'شاحن',             prefix: 'CHG', cat: 'accessory', kw: ['شاحن'] },
+  { name: 'باور بانك',        prefix: 'PWR', cat: 'accessory', kw: ['باور'] },
+  { name: 'وصلة',             prefix: 'CBL', cat: 'accessory', kw: ['وصلة', 'كبل', 'كيبل'] },
+  { name: 'تحويلة',           prefix: 'ADP', cat: 'accessory', kw: ['تحويلة'] },
+  { name: 'هولدر',            prefix: 'HLD', cat: 'accessory', kw: ['هولدر'] },
+  { name: 'بيوت حماية',       prefix: 'CSE', cat: 'accessory', kw: ['بيت حماية', 'كفر', 'جراب'] },
+  { name: 'لزقات وواقيات',    prefix: 'SCR', cat: 'accessory', kw: ['لزقة', 'لزقات', 'عدسات كاميرا', 'واقي'] },
+  { name: 'عدة وصيانة',       prefix: 'TLS', cat: 'accessory', kw: ['لاصق', 'بخاخ', 'طقم الحبر', 'راصور', 'كرتونة'] },
+  { name: 'فلاشات وكروت',     prefix: 'MEM', cat: 'accessory', kw: ['فلاشة', 'كرت', 'ذاكرة'] },
+  { name: 'MP3 سيارة',        prefix: 'MP3', cat: 'accessory', kw: ['mp3'] },
+  { name: 'راوتر وشبكات',     prefix: 'NET', cat: 'accessory', kw: ['راوتر'] },
+  { name: 'كاميرات',          prefix: 'CAM', cat: 'accessory', kw: ['كاميرا'] },
+  { name: 'إكسسوارات ألعاب',  prefix: 'GAM', cat: 'accessory', kw: ['ببجي'] },
+  { name: 'حلقات وستاندات',   prefix: 'RNG', cat: 'accessory', kw: ['حلقة', 'ستاند', 'tripod'] },
+  { name: 'هواتف',            prefix: 'PHN', cat: 'phone',     kw: ['هاتف', 'موبايل', 'جوال'] },
+  { name: 'أرقام افتراضية',   prefix: 'VNM', cat: 'vnumber',   kw: ['رقم افتراضي'] },
+  { name: 'كوينز وبطاقات',    prefix: 'CRD', cat: 'gamecard',  kw: ['كوينز', 'بطاقة'] },
+  { name: 'رصيد شرائح',       prefix: 'SIM', cat: 'simcredit', kw: ['رصيد شريحة', 'رصيد'] },
+  { name: 'خدمات وصيانة',     prefix: 'SRV', cat: 'service',   kw: ['تصليح', 'برمجة', 'فك شفرة', 'صيانة'] },
+  { name: 'متفرقات',          prefix: 'MSC', cat: 'accessory', kw: [] }
+];
+const allGroups = () => GROUPS.concat(S.settings.customGroups || []);
+const groupByName = nm => allGroups().find(g => g.name === nm);
+const groupOf = p => groupByName(p.group) || allGroups()[allGroups().length - 1];
+
+/* يستنتج النوع من الاسم؛ فئة غير الاكسسوارات تُرجِّح نوعها مباشرة */
+function inferGroup(p) {
+  if (p.cat && p.cat !== 'accessory') {
+    const byCat = allGroups().find(g => g.cat === p.cat);
+    if (byCat) return byCat;
+  }
+  const hay = ((p.name || '') + ' ' + (p.brand || '')).toLowerCase();
+  return allGroups().find(g => (g.kw || []).some(k => hay.includes(k))) || groupByName('متفرقات');
+}
+
+/* الكود التالي ضمن نوع معيّن: SPK-001 ، SPK-002 … */
+function nextSku(prefix, extra) {
+  let max = 0;
+  const scan = sku => { const m = /^([A-Za-z0-9]+)-(\d+)$/.exec(sku || ''); if (m && m[1] === prefix) max = Math.max(max, +m[2]); };
+  S.products.forEach(x => scan(x.sku));
+  (extra || []).forEach(scan);
+  return prefix + '-' + String(max + 1).padStart(3, '0');
+}
+
+/* ترقيم وتصنيف القطع التي لا كود لها — مرة واحدة، ثم لكل قطعة جديدة */
+const CLIENT_ID = 'c' + Math.random().toString(36).slice(2, 9);
+let codesDone = false;
+async function ensureCodes() {
+  if (codesDone || !S.products.length) return;
+  const need = S.products.filter(x => !x.sku || !x.group);
+  if (!need.length) { codesDone = true; return; }
+  codesDone = true;
+  if (!(await Store.lease('meta/codelock', CLIENT_ID, 180000))) return;
+  const counters = {};
+  S.products.forEach(x => {
+    const m = /^([A-Za-z0-9]+)-(\d+)$/.exec(x.sku || '');
+    if (m) counters[m[1]] = Math.max(counters[m[1]] || 0, +m[2]);
+  });
+  let done = 0;
+  for (const x of need) {
+    const g = groupByName(x.group) || inferGroup(x);
+    x.group = g.name;
+    if (!x.sku) {
+      counters[g.prefix] = (counters[g.prefix] || 0) + 1;
+      x.sku = g.prefix + '-' + String(counters[g.prefix]).padStart(3, '0');
+    }
+    await saveProduct(x);
+    if (++done % 8 === 0) await new Promise(r => setTimeout(r, 180));
+  }
+  toast('تم ترقيم ' + done + ' قطعة وتصنيفها حسب النوع');
+  render();
+}
 
 const EXP_CATS = ['إيجار','كهرباء ومحروقات','إنترنت','نقل وشحن','ضيافة','رواتب','صيانة المحل','رسوم وضرائب','أخرى'];
 
@@ -533,9 +623,10 @@ async function boot() {
     S.settings = Object.assign({}, DEFAULT_SETTINGS, d || {});
     if (!Array.isArray(S.settings.partners)) S.settings.partners = [];
     if (!Array.isArray(S.settings.otherAssets)) S.settings.otherAssets = [];
+    if (!Array.isArray(S.settings.customGroups)) S.settings.customGroups = [];
     paintBrand(); render();
   });
-  Store.watch('products', d => { S.products = d.sort(byName); render(); });
+  Store.watch('products', d => { S.products = d.sort(byName); render(); ensureCodes(); });
   Store.watch('parties',  d => { S.parties  = d.sort(byName); render(); });
   Store.watch('sites',    d => { S.sites    = d.sort(byName); render(); });
 
@@ -636,7 +727,7 @@ const tryv = x => '<span class="num">' + money0(x) + '</span> <span style="font-
 const toTRY = x => n(x) * n(S.settings.rateTRY || 0);
 
 /* ---------- 8. شاشة البيع ---------- */
-let posQuery = '', posCat = '';
+let posQuery = '', posCat = '', posMode = 'pick', posGroup = '', posPick = '';
 
 function viewPOS() {
   const b = book(S.month);
@@ -662,14 +753,19 @@ function viewPOS() {
       <div class="pad" style="padding-bottom:10px">
         <div class="sec-h"><h2>فاتورة جديدة</h2>
           <button class="btn sm" data-act="freeline" type="button">+ بند حر</button></div>
-        <div class="f"><label for="posq">ابحث بالاسم أو الرمز</label>
-          <input id="posq" type="search" placeholder="مثال: شاحن، وصلة، GTS-1882" value="${esc(posQuery)}" autocomplete="off"></div>
+        <div class="chips" style="margin-bottom:11px">
+          <button class="chip" data-act="posmode" data-v="pick" aria-pressed="${posMode === 'pick'}" type="button">اختيار حسب النوع</button>
+          <button class="chip" data-act="posmode" data-v="search" aria-pressed="${posMode === 'search'}" type="button">بحث سريع</button>
+        </div>
+        ${posMode === 'pick' ? pickPanel() : `
+        <div class="f"><label for="posq">ابحث بالاسم أو الكود</label>
+          <input id="posq" type="search" placeholder="مثال: شاحن، CHG-004، GTS-1882" value="${esc(posQuery)}" autocomplete="off"></div>
         <div class="chips" style="margin-top:9px">
           <button class="chip" data-act="poscat" data-v="" aria-pressed="${posCat === ''}" type="button">الكل</button>
           ${CATS.map(c => `<button class="chip" data-act="poscat" data-v="${c.id}" aria-pressed="${posCat === c.id}" type="button">${c.label}</button>`).join('')}
-        </div>
+        </div>`}
       </div>
-      <div id="posResults">${posResults()}</div>
+      ${posMode === 'search' ? `<div id="posResults">${posResults()}</div>` : ''}
     </section>
 
     <section class="card">
@@ -697,15 +793,83 @@ function viewPOS() {
 }
 viewPOS.after = () => {
   const q = $('#posq');
-  if (!q) return;
-  q.oninput = () => { posQuery = q.value; $('#posResults').innerHTML = posResults(); };
+  if (q) q.oninput = () => { posQuery = q.value; $('#posResults').innerHTML = posResults(); };
+  const gs = $('#pkGroup'), ps = $('#pkProd');
+  if (gs && ps) {
+    gs.onchange = () => { posGroup = gs.value; posPick = ''; ps.innerHTML = pickProdOptions(); posPick = ps.value; syncPick(); };
+    ps.onchange = () => { posPick = ps.value; syncPick(); };
+    syncPick();
+  }
 };
+
+/* أنواع القطع الموجودة فعلاً في الجرد، مع عدد أصنافها */
+function groupsInStock() {
+  const counts = {};
+  S.products.filter(p => p.active !== false).forEach(p => {
+    const g = (p.group || inferGroup(p).name);
+    counts[g] = (counts[g] || 0) + 1;
+  });
+  return allGroups().filter(g => counts[g.name]).map(g => ({ g, count: counts[g.name] }));
+}
+function productsInGroup(name) {
+  return S.products.filter(p => p.active !== false && (p.group || inferGroup(p).name) === name);
+}
+function pickProdOptions() {
+  const list = productsInGroup(posGroup);
+  if (!list.length) return '<option value="">— لا قطع في هذا النوع —</option>';
+  return list.map(p => {
+    const stock = isStocked(p) ? ' · الكمية ' + money0(p.qty) : ' · خدمة';
+    const label = (p.sku ? p.sku + ' — ' : '') + p.name + (p.brand ? ' ' + p.brand : '') + (p.code ? ' (' + p.code + ')' : '') + stock;
+    return `<option value="${esc(p.id)}"${p.id === posPick ? ' selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+}
+function pickPanel() {
+  const groups = groupsInStock();
+  if (!groups.length) return '<div class="empty">لا قطع في الجرد بعد — أضف قطعة من زر «قطعة جديدة للجرد».<br><button class="btn primary sm" data-act="newprodquick" type="button" style="margin-top:10px">+ قطعة جديدة للجرد</button></div>';
+  if (!posGroup || !groups.some(x => x.g.name === posGroup)) posGroup = groups[0].g.name;
+  const list = productsInGroup(posGroup);
+  if (!posPick || !list.some(p => p.id === posPick)) posPick = list.length ? list[0].id : '';
+  return `
+    <div class="grid2">
+      <div class="f"><label for="pkGroup">نوع القطعة</label>
+        <select id="pkGroup">${groups.map(x =>
+          `<option value="${esc(x.g.name)}"${x.g.name === posGroup ? ' selected' : ''}>${esc(x.g.name)} (${x.count})</option>`).join('')}</select></div>
+      <div class="f"><label for="pkProd">القطعة</label>
+        <select id="pkProd">${pickProdOptions()}</select></div>
+    </div>
+    <div class="grid3" style="margin-top:10px">
+      <div class="f"><label for="pkQty">العدد</label><input id="pkQty" type="number" min="1" step="1" value="1"></div>
+      <div class="f"><label for="pkPrice">سعر البيع $</label><input id="pkPrice" type="number" step="0.01" value=""></div>
+      <div class="f"><label for="pkCost">التكلفة $</label><input id="pkCost" type="number" step="0.01" value=""></div>
+    </div>
+    <div id="pkInfo" class="hint" style="margin-top:9px"></div>
+    <div class="row" style="margin-top:11px">
+      <button class="btn primary" data-act="pickadd" type="button">أضف إلى الفاتورة</button>
+      <button class="btn" data-act="newprodquick" type="button">+ قطعة جديدة للجرد</button>
+    </div>`;
+}
+/* يملأ السعر والتكلفة وسطر المعلومات من القطعة المختارة */
+function syncPick() {
+  const p = P(posPick), info = $('#pkInfo');
+  const pr = $('#pkPrice'), co = $('#pkCost');
+  if (!p) { if (info) info.textContent = 'اختر قطعة من القائمة.'; if (pr) pr.value = ''; if (co) co.value = ''; return; }
+  if (pr) pr.value = n(p.price) || '';
+  if (co) co.value = n(p.cost);
+  if (!info) return;
+  const bits = [];
+  bits.push('الكود ' + (p.sku || '—'));
+  if (p.code) bits.push('رمز المصنّع ' + p.code);
+  if (isStocked(p)) bits.push('المتوفر ' + money0(p.qty) + ' قطعة');
+  else bits.push('خدمة — تُخصم التكلفة من ' + (SITE(p.siteId) ? SITE(p.siteId).name : 'لا حساب مرتبط'));
+  if (!n(p.price)) bits.push('⚠ سعر البيع غير محدّد — أدخله هنا وسيُحفظ للقطعة');
+  info.textContent = bits.join(' · ');
+}
 
 function posResults() {
   const q = posQuery.trim().toLowerCase();
   let list = S.products.filter(p => p.active !== false);
   if (posCat) list = list.filter(p => p.cat === posCat);
-  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
+  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.group || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
   else list = list.slice(0, 12);
   if (!list.length) return '<div class="empty">لا نتائج. جرّب بنداً حراً إن كان الصنف غير مسجّل.</div>';
   return '<div class="results"><div class="list">' + list.slice(0, 60).map(p => {
@@ -717,8 +881,9 @@ function posResults() {
     return `<div class="item click" data-act="addline" data-id="${p.id}">
       <span class="stripe ${stocked ? st : 'acc'}"></span>
       <span class="grow"><span class="t">${esc(p.name)}${p.brand ? ' <span style="color:var(--muted);font-weight:400">' + esc(p.brand) + '</span>' : ''}</span>
-        <span class="m">${p.code ? '<span class="mono">' + esc(p.code) + '</span>' : ''}
-          <span>${catOf(p.cat).label}</span>
+        <span class="m">${p.sku ? '<span class="pill code">' + esc(p.sku) + '</span>' : ''}
+          ${p.code ? '<span class="mono">' + esc(p.code) + '</span>' : ''}
+          <span>${esc(p.group || catOf(p.cat).label)}</span>
           ${stocked ? '<span>الكمية <span class="num">' + money0(p.qty) + '</span></span>' : '<span>خدمة</span>'}
           ${noPrice ? '<span class="pill low">سعر البيع غير محدّد</span>' : ''}</span></span>
       <span class="amt">${n(p.price) ? money(p.price) + ' $' : '—'}</span>
@@ -763,7 +928,7 @@ function saleRow(s) {
 </script>
 <script>
 /* ---------- 9. الجرد ---------- */
-let stockQuery = '', stockCat = '', stockFilter = '';
+let stockQuery = '', stockCat = '', stockFilter = '', stockGroup = '';
 
 function stockStats() {
   let cost = 0, retail = 0, units = 0, low = 0, out = 0, noPrice = 0;
@@ -799,7 +964,13 @@ function viewStock() {
             <button class="btn sm" data-act="expstock" type="button">تصدير</button>
             <button class="btn primary sm" data-act="newprod" type="button">+ صنف</button>
           </div></div>
-        <div class="f"><label for="stq">بحث</label><input id="stq" type="search" value="${esc(stockQuery)}" placeholder="اسم أو رمز أو IMEI" autocomplete="off"></div>
+        <div class="grid2">
+          <div class="f"><label for="stq">بحث</label><input id="stq" type="search" value="${esc(stockQuery)}" placeholder="اسم أو كود أو IMEI" autocomplete="off"></div>
+          <div class="f"><label for="stg">نوع القطعة</label><select id="stg">
+            <option value="">كل الأنواع</option>
+            ${groupsInStock().map(x => `<option value="${esc(x.g.name)}"${x.g.name === stockGroup ? ' selected' : ''}>${esc(x.g.name)} (${x.count})</option>`).join('')}
+          </select></div>
+        </div>
         <div class="chips" style="margin-top:9px">
           <button class="chip" data-act="stockcat" data-v="" aria-pressed="${stockCat === ''}" type="button">كل الفئات</button>
           ${CATS.map(c => `<button class="chip" data-act="stockcat" data-v="${c.id}" aria-pressed="${stockCat === c.id}" type="button">${c.label}</button>`).join('')}
@@ -825,16 +996,19 @@ function viewStock() {
 viewStock.after = () => {
   const q = $('#stq');
   if (q) q.oninput = () => { stockQuery = q.value; $('#stockList').innerHTML = stockList(); };
+  const g = $('#stg');
+  if (g) g.onchange = () => { stockGroup = g.value; $('#stockList').innerHTML = stockList(); };
 };
 
 function stockList() {
   let list = S.products.slice();
+  if (stockGroup) list = list.filter(p => (p.group || inferGroup(p).name) === stockGroup);
   if (stockCat) list = list.filter(p => p.cat === stockCat);
   if (stockFilter === 'low') list = list.filter(p => isStocked(p) && n(p.qty) > 0 && n(p.qty) <= n(S.settings.lowStock || 2));
   if (stockFilter === 'out') list = list.filter(p => isStocked(p) && n(p.qty) <= 0);
   if (stockFilter === 'noprice') list = list.filter(p => !n(p.price));
   const q = stockQuery.trim().toLowerCase();
-  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
+  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
   return '<div class="list">' +
     (list.length ? list.slice(0, 400).map(prodRow).join('') : '<div class="empty">لا أصناف مطابقة.</div>') + '</div>' +
     (list.length > 400 ? '<div class="empty">تُعرض أول 400 صنف — ضيّق البحث لرؤية الباقي.</div>' : '');
@@ -848,8 +1022,9 @@ function prodRow(p) {
   return `<div class="item click" data-act="editprod" data-id="${p.id}">
     <span class="stripe ${st}"></span>
     <span class="grow"><span class="t">${esc(p.name)}${p.brand ? ' <span style="color:var(--muted);font-weight:400">' + esc(p.brand) + '</span>' : ''}</span>
-      <span class="m">${p.code ? '<span class="mono">' + esc(p.code) + '</span>' : ''}
-        <span>${catOf(p.cat).label}</span>
+      <span class="m">${p.sku ? '<span class="pill code">' + esc(p.sku) + '</span>' : ''}
+        <span>${esc(p.group || catOf(p.cat).label)}</span>
+        ${p.code ? '<span class="mono">' + esc(p.code) + '</span>' : ''}
         ${p.imei ? '<span class="mono">IMEI ' + esc(p.imei) + '</span>' : ''}
         ${p.siteId && SITE(p.siteId) ? '<span class="pill acc">' + esc(SITE(p.siteId).name) + '</span>' : ''}
         <span>تكلفة <span class="num">${money(p.cost)}</span></span>
@@ -1395,6 +1570,23 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* تصفية */
   case 'poscat':      posCat = ds.v; render(); break;
+  case 'posmode':     posMode = ds.v; render(); break;
+  case 'pickadd': {
+    const prod = P($('#pkProd') ? $('#pkProd').value : posPick);
+    if (!prod) { toast('اختر قطعة أولاً', true); return; }
+    const qty = Math.max(1, n(mv('pkQty')) || 1);
+    const price = n(mv('pkPrice')), cost = n(mv('pkCost'));
+    if (price <= 0) { toast('أدخل سعر البيع', true); return; }
+    if (isStocked(prod) && qty > n(prod.qty))
+      toast('تنبيه: المتوفر ' + money0(prod.qty) + ' فقط — سُجّلت الكمية كما أدخلتها', true);
+    /* أول سعر بيع يُدخَل للقطعة يُحفظ عليها، فلا تعيد إدخاله كل مرة */
+    if (!n(prod.price) && price > 0) { prod.price = price; await saveProduct(prod); }
+    const ex = S.cart.find(l => l.pid === prod.id && n(l.price) === price);
+    if (ex) ex.qty = n(ex.qty) + qty;
+    else S.cart.push({ pid: prod.id, name: prod.name + (prod.brand ? ' ' + prod.brand : ''), qty, price, cost });
+    render(); toast('أُضيفت ' + qty + ' × ' + prod.name);
+    break;
+  }
   case 'stockcat':    stockCat = ds.v; render(); break;
   case 'stockfilter': stockFilter = ds.v; render(); break;
   case 'debtside':    debtSide = ds.v; render(); break;
@@ -1436,26 +1628,67 @@ async function handle(act, ds, el, fromChange, ev) {
   case 'delsale': if (confirm('حذف هذه الفاتورة وإرجاع الكميات إلى الجرد؟')) await reverseSale(ds.id); break;
 
   /* الأصناف */
-  case 'newprod': case 'editprod': {
+  case 'newprod': case 'editprod': case 'newprodquick': {
     const p = act === 'editprod' ? P(ds.id) : null;
-    modal(p ? 'تعديل صنف' : 'صنف جديد',
-      fld('pName', 'اسم الصنف', 'text', p ? p.name : '') +
-      '<div class="grid2">' + fld('pBrand', 'الماركة', 'text', p ? p.brand : '') + fld('pCode', 'الرمز', 'text', p ? p.code : '') + '</div>' +
-      sel('pCat', 'الفئة', CATS.map(c => ({ v: c.id, t: c.label })), p ? p.cat : 'accessory') +
-      '<div class="grid3">' + fld('pQty', 'الكمية', 'number', p ? n(p.qty) : 0, 'step="1"') +
+    const quick = act === 'newprodquick';
+    const preGroup = p ? (p.group || inferGroup(p).name) : (posGroup || 'متفرقات');
+    modal(p ? 'تعديل قطعة' : 'قطعة جديدة في الجرد',
+      fld('pName', 'اسم القطعة', 'text', p ? p.name : '') +
+      '<div class="grid2">' +
+        '<div class="f"><label for="pGroup">نوع القطعة</label><select id="pGroup">' +
+          allGroups().map(g => `<option value="${esc(g.name)}"${g.name === preGroup ? ' selected' : ''}>${esc(g.name)}</option>`).join('') +
+          '<option value="__new">+ نوع جديد…</option></select></div>' +
+        fld('pSku', 'كود القطعة', 'text', p ? p.sku : '', 'placeholder="يُولَّد تلقائياً"') +
+      '</div>' +
+      '<div class="f" id="pNewGroupWrap" hidden><label for="pNewGroup">اسم النوع الجديد</label><input id="pNewGroup" type="text"></div>' +
+      '<div class="grid2">' + fld('pBrand', 'الماركة', 'text', p ? p.brand : '') + fld('pCode', 'رمز المصنّع', 'text', p ? p.code : '') + '</div>' +
+      sel('pCat', 'الفئة', CATS.map(c => ({ v: c.id, t: c.label })), p ? p.cat : (groupByName(preGroup) || {}).cat || 'accessory') +
+      '<div class="grid3">' + fld('pQty', 'الكمية', 'number', p ? n(p.qty) : 1, 'step="1"') +
       fld('pCost', 'التكلفة $', 'number', p ? n(p.cost) : '', 'step="0.01"') +
       fld('pPrice', 'سعر البيع $', 'number', p ? n(p.price) : '', 'step="0.01"') + '</div>' +
       fld('pImei', 'IMEI / الرقم التسلسلي (للهواتف)', 'text', p ? p.imei : '') +
       sel('pSite', 'يُخصم من حساب', siteOptions(), p ? p.siteId : '') +
       fld('pNote', 'ملاحظة', 'text', p ? p.note : '') +
-      (p ? '<button class="btn danger" data-act="delprod" data-id="' + p.id + '" type="button">حذف الصنف</button>' : ''),
+      (quick ? '<p class="hint">ستُضاف القطعة إلى الجرد وإلى الفاتورة الحالية معاً.</p>' : '') +
+      (p ? '<button class="btn danger" data-act="delprod" data-id="' + p.id + '" type="button">حذف القطعة</button>' : ''),
       async () => {
-        if (!mv('pName').trim()) { toast('أدخل اسم الصنف', true); return; }
-        const obj = { id: p ? p.id : uid('p'), name: mv('pName').trim(), brand: mv('pBrand').trim(), code: mv('pCode').trim(),
+        if (!mv('pName').trim()) { toast('أدخل اسم القطعة', true); return; }
+        let gName = mv('pGroup');
+        if (gName === '__new') {
+          gName = mv('pNewGroup').trim();
+          if (!gName) { toast('أدخل اسم النوع الجديد', true); return; }
+          if (!groupByName(gName)) {
+            const custom = (S.settings.customGroups || []).slice();
+            custom.push({ name: gName, prefix: 'G' + String(custom.length + 1).padStart(2, '0'), cat: mv('pCat'), kw: [] });
+            await saveSettings({ customGroups: custom });
+          }
+        }
+        const g = groupByName(gName) || groupByName('متفرقات');
+        const obj = { id: p ? p.id : uid('p'), name: mv('pName').trim(), group: g.name,
+          sku: mv('pSku').trim() || (p && p.sku) || nextSku(g.prefix),
+          brand: mv('pBrand').trim(), code: mv('pCode').trim(),
           cat: mv('pCat'), qty: n(mv('pQty')), cost: n(mv('pCost')), price: n(mv('pPrice')),
           imei: mv('pImei').trim(), siteId: mv('pSite'), note: mv('pNote').trim(), active: true };
-        await saveProduct(obj); closeModal(); toast('تم الحفظ');
-      }); break;
+        await saveProduct(obj);
+        if (quick) {
+          posGroup = obj.group; posPick = obj.id;
+          S.cart.push({ pid: obj.id, name: obj.name + (obj.brand ? ' ' + obj.brand : ''), qty: 1, price: n(obj.price), cost: n(obj.cost) });
+        }
+        closeModal(); render(); toast(quick ? 'أُضيفت القطعة للجرد وللفاتورة' : 'تم الحفظ');
+      });
+    /* النوع يضبط الفئة، و«نوع جديد» يُظهر حقل الاسم */
+    const gsel = $('#pGroup'), gwrap = $('#pNewGroupWrap');
+    if (gsel) gsel.onchange = () => {
+      gwrap.hidden = gsel.value !== '__new';
+      const g = groupByName(gsel.value);
+      if (g && $('#pCat')) $('#pCat').value = g.cat;
+      if (g && $('#pSku') && !$('#pSku').value) $('#pSku').placeholder = nextSku(g.prefix);
+    };
+    if (gsel && $('#pSku') && !$('#pSku').value) {
+      const g0 = groupByName(gsel.value);
+      if (g0) $('#pSku').placeholder = nextSku(g0.prefix);
+    }
+    break;
   }
   case 'delprod': if (confirm('حذف الصنف نهائياً؟')) { await Store.del('products/' + ds.id); closeModal(); toast('حُذف الصنف'); } break;
 
@@ -1674,8 +1907,8 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* التصدير */
   case 'expstock':
-    download('الجرد-' + todayStr() + '.csv', csv([['الصنف','الماركة','الرمز','الفئة','الكمية','التكلفة','سعر البيع','قيمة التكلفة','IMEI','ملاحظة']]
-      .concat(S.products.map(p => [p.name, p.brand, p.code, catOf(p.cat).label, n(p.qty), n(p.cost), n(p.price), r2(n(p.qty) * n(p.cost)), p.imei, p.note]))));
+    download('الجرد-' + todayStr() + '.csv', csv([['كود القطعة','نوع القطعة','الصنف','الماركة','رمز المصنّع','الفئة','الكمية','التكلفة','سعر البيع','قيمة التكلفة','IMEI','ملاحظة']]
+      .concat(S.products.map(p => [p.sku, p.group, p.name, p.brand, p.code, catOf(p.cat).label, n(p.qty), n(p.cost), n(p.price), r2(n(p.qty) * n(p.cost)), p.imei, p.note]))));
     break;
   case 'expdebts':
     download('الديون-' + todayStr() + '.csv', csv([['الاسم','النوع','الرصيد $','الرصيد TL','الهاتف','ملاحظة']]
