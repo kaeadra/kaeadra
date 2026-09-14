@@ -75,6 +75,11 @@ button,input,select,textarea{font:inherit;color:inherit}
   display:grid;place-items:center;flex:none;font-family:"Readex Pro",sans-serif;font-weight:600;font-size:13px}
 .brand b{font-family:"Readex Pro",sans-serif;font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .brand small{display:block;color:var(--muted);font-size:11px;line-height:1.1}
+.sellerbtn{display:block;background:none;border:0;padding:0;margin:0;cursor:pointer;color:var(--accent);
+  font:inherit;font-size:11.5px;font-weight:600;line-height:1.25;text-align:start;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sellerbtn:hover{text-decoration:underline}
+.sellerbtn.none{color:var(--warn)}
 .iconbtn{background:none;border:1px solid var(--line);border-radius:8px;width:34px;height:34px;
   display:grid;place-items:center;cursor:pointer;color:var(--ink-2);flex:none}
 .iconbtn:hover{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
@@ -236,7 +241,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0;backgr
 
 <div class="app">
   <aside class="rail">
-    <div class="rbrand"><div class="mark" id="rmark">دم</div><div style="min-width:0"><b style="font-family:'Readex Pro',sans-serif;font-size:14px" id="rname">دفتر المحل</b><small style="display:block;color:var(--muted);font-size:11px" id="rsub">—</small></div></div>
+    <div class="rbrand"><div class="mark" id="rmark">دم</div><div style="min-width:0"><b style="font-family:'Readex Pro',sans-serif;font-size:14px" id="rname">دفتر المحل</b>
+      <button class="sellerbtn" id="rsub" data-act="pickseller" type="button">—</button></div></div>
     <nav id="railnav"></nav>
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:6px">
       <button class="btn sm" id="railTheme" type="button">تبديل الوضع الليلي</button>
@@ -247,7 +253,8 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0;backgr
     <div class="topbar">
       <div class="brand">
         <div class="mark">دم</div>
-        <div style="min-width:0"><b id="hname">دفتر المحل</b><small id="hsub">جاري التحميل…</small></div>
+        <div style="min-width:0"><b id="hname">دفتر المحل</b>
+          <button class="sellerbtn" id="hsub" data-act="pickseller" type="button">جاري التحميل…</button></div>
       </div>
       <button class="iconbtn" id="btnTheme" type="button" title="الوضع الليلي" aria-label="تبديل الوضع الليلي">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="17" height="17"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
@@ -273,6 +280,7 @@ tfoot td{font-weight:600;border-top:1px solid var(--line);border-bottom:0;backgr
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const nowTime = () => { const d = new Date(); return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); };
 const todayStr = () => { const d = new Date(); return [d.getFullYear(), String(d.getMonth()+1).padStart(2,'0'), String(d.getDate()).padStart(2,'0')].join('-'); };
 const monthOf = d => String(d || todayStr()).slice(0, 7);
 const n = v => { const x = parseFloat(String(v ?? '').replace(/[^\d.\-]/g, '')); return Number.isFinite(x) ? x : 0; };
@@ -463,7 +471,8 @@ const DEFAULT_SETTINGS = {
   lowStock: 2,
   partners: [],
   otherAssets: [],
-  customGroups: []
+  customGroups: [],
+  staff: []
 };
 const CATS = [
   { id: 'accessory', label: 'اكسسوارات', stock: true },
@@ -557,6 +566,27 @@ async function ensureCodes() {
   render();
 }
 
+/* طرق الدفع كما تُعرض وتُسجَّل */
+const PAY = {
+  cash:    { label: 'كاش',        hint: 'يدخل المبلغ إلى درج المحل' },
+  sham:    { label: 'شام كاش',    hint: 'يدخل المبلغ إلى حساب شام كاش' },
+  debt:    { label: 'دين',        hint: 'لا يُقبض شيء الآن — يُقيَّد على الزبون' },
+  partial: { label: 'دفعة ونقص',  hint: 'جزء يُقبض الآن والباقي دين' }
+};
+const payLabel = m => (PAY[m] || {}).label || m || '—';
+
+/* الحسابات التي تستقبل مدفوعات الزبائن (شام كاش، بنك…) — غير أرصدة الشراء كـ5sim */
+const payTargets = () => S.sites.filter(x => x.isPay);
+const shamSite = () => S.sites.find(x => x.isPay && /شام/.test(x.name || ''));
+const destName = id => { const x = SITE(id); return x ? x.name : 'درج المحل'; };
+
+/* البائعون — من الإعدادات، وإلا من أسماء الشركاء */
+const staffList = () => {
+  const st = (S.settings.staff || []).filter(Boolean);
+  return st.length ? st : (S.settings.partners || []).map(x => x.name).filter(Boolean);
+};
+const staffOptions = cur => staffList().map(nm => ({ v: nm, t: nm }));
+
 const EXP_CATS = ['إيجار','كهرباء ومحروقات','إنترنت','نقل وشحن','ضيافة','رواتب','صيانة المحل','رسوم وضرائب','أخرى'];
 
 const S = {
@@ -569,8 +599,17 @@ const S = {
   ledger: {},          // "YYYY-MM" -> {sales,purchases,expenses,payments}
   cart: [],
   cartParty: '',
+  seller: '',
   ready: false
 };
+try { S.seller = localStorage.getItem('daftar:seller') || ''; } catch (e) {}
+function setSeller(nm) {
+  S.seller = nm || '';
+  try { localStorage.setItem('daftar:seller', S.seller); } catch (e) {}
+  paintBrand(); render();
+}
+/* البائع المسجَّل على أي حركة جديدة — لا يُخمَّن */
+const who = () => S.seller || '';
 
 const P = id => S.products.find(p => p.id === id);
 const PARTY = id => S.parties.find(p => p.id === id);
@@ -624,6 +663,7 @@ async function boot() {
     if (!Array.isArray(S.settings.partners)) S.settings.partners = [];
     if (!Array.isArray(S.settings.otherAssets)) S.settings.otherAssets = [];
     if (!Array.isArray(S.settings.customGroups)) S.settings.customGroups = [];
+    if (!Array.isArray(S.settings.staff)) S.settings.staff = [];
     paintBrand(); render();
   });
   Store.watch('products', d => { S.products = d.sort(byName); render(); ensureCodes(); });
@@ -634,6 +674,7 @@ async function boot() {
   S.ready = true;
   render();
   watchCurrentMonth();
+  if (!S.seller && staffList().length) handle('pickseller', {}, null);
 }
 const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
 
@@ -655,8 +696,9 @@ function watchCurrentMonth() {
 function paintBrand() {
   const nm = S.settings.shopName || 'دفتر المحل';
   $('#hname').textContent = nm; $('#rname').textContent = nm;
-  const sub = Store.isLive ? 'متزامن' : 'وضع محلي';
-  $('#hsub').textContent = sub; $('#rsub').textContent = sub;
+  const cur = S.seller;
+  const sub = cur ? 'البائع: ' + cur + ' ⌄' : 'اختر البائع ⌄';
+  $$('#hsub, #rsub').forEach(el => { el.textContent = sub; el.classList.toggle('none', !cur); });
   const initials = nm.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('');
   $$('.mark').forEach(el => el.textContent = initials || 'دم');
   document.title = nm;
@@ -917,9 +959,11 @@ function saleRow(s) {
   return `<div class="item">
     <span class="stripe ${unpaid > 0 ? 'warn' : 'good'}"></span>
     <span class="grow"><span class="t">${esc(names || 'فاتورة')}</span>
-      <span class="m"><span class="mono">${esc((s.ts || '').slice(11, 16))}</span>
+      <span class="m"><span class="mono">${esc(s.date)} · ${esc(s.time || (s.ts || '').slice(11, 16))}</span>
+        ${s.seller ? '<span class="pill acc">' + esc(s.seller) + '</span>' : ''}
+        <span class="pill ${unpaid > 0 ? 'low' : 'ok'}">${esc(payLabel(s.method))}${s.destId ? ' · ' + esc(s.destName || destName(s.destId)) : ''}</span>
         <span>ربح <span class="num">${money(s.profit)}</span> $</span>
-        ${unpaid > 0 ? '<span class="pill low">دين ' + money(unpaid) + ' $ · ' + esc(s.partyName || '—') + '</span>' : '<span class="pill ok">نقدي</span>'}
+        ${unpaid > 0 ? '<span class="pill low">باقٍ ' + money(unpaid) + ' $ · ' + esc(s.partyName || '—') + '</span>' : ''}
         ${s.note ? '<span>' + esc(s.note) + '</span>' : ''}</span></span>
     <span class="amt">${money(s.total)} $</span>
     <button class="btn ghost sm" data-act="delsale" data-id="${s.id}" type="button" aria-label="حذف الفاتورة">✕</button>
@@ -1093,7 +1137,11 @@ function partyRow(p) {
 function payRow(x) {
   return `<div class="item"><span class="stripe ${x.dir === 'in' ? 'good' : 'bad'}"></span>
     <span class="grow"><span class="t">${esc(x.partyName || '—')}</span>
-      <span class="m"><span class="mono">${esc(x.date)}</span><span>${x.dir === 'in' ? 'قبضنا' : 'دفعنا'}</span>${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
+      <span class="m"><span class="mono">${esc(x.date)}${x.time ? ' · ' + esc(x.time) : ''}</span>
+        <span>${x.dir === 'in' ? 'قبضنا' : 'دفعنا'}</span>
+        ${x.seller ? '<span class="pill acc">' + esc(x.seller) + '</span>' : ''}
+        ${x.destId ? '<span class="pill neutral">' + esc(x.destName || destName(x.destId)) + '</span>' : ''}
+        ${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
     <span class="amt">${x.dir === 'in' ? '+' : '−'}${money(x.amount)} $</span></div>`;
 }
 
@@ -1123,7 +1171,8 @@ function viewCash() {
           <div class="item click" data-act="site" data-id="${s.id}">
             <span class="stripe ${n(s.balance) <= n(s.minBal || 0) ? 'warn' : 'acc'}"></span>
             <span class="grow"><span class="t">${esc(s.name)}</span>
-              <span class="m">${s.note ? '<span>' + esc(s.note) + '</span>' : ''}
+              <span class="m">${s.isPay ? '<span class="pill acc">يستقبل مدفوعات</span>' : ''}
+                ${s.note ? '<span>' + esc(s.note) + '</span>' : ''}
                 ${n(s.balance) <= n(s.minBal || 0) ? '<span class="pill low">الرصيد منخفض</span>' : ''}</span></span>
             <span class="amt">${money(s.balance)} $</span></div>`).join('')
           : '<div class="empty">لا حسابات بعد — أضف سرمدا كارد، 5sim، MTN، أو حساباً بنكياً.</div>'}
@@ -1151,7 +1200,10 @@ function expRow(x) {
   const label = x.kind === 'withdrawal' ? 'مسحوبات' : x.kind === 'topup' ? 'شحن رصيد' : x.kind === 'recon' ? 'تسوية صندوق' : (x.cat || 'مصروف');
   return `<div class="item"><span class="stripe ${x.kind === 'withdrawal' ? 'warn' : x.kind === 'topup' ? 'acc' : 'bad'}"></span>
     <span class="grow"><span class="t">${esc(x.who || label)}</span>
-      <span class="m"><span class="mono">${esc(x.date)}</span><span>${esc(label)}</span>${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
+      <span class="m"><span class="mono">${esc(x.date)}${x.time ? ' · ' + esc(x.time) : ''}</span><span>${esc(label)}</span>
+      ${x.seller ? '<span class="pill acc">' + esc(x.seller) + '</span>' : ''}
+      ${x.destId ? '<span class="pill neutral">' + esc(x.destName || destName(x.destId)) + '</span>' : ''}
+      ${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
     <span class="amt">${money(x.amount)} $</span>
     <button class="btn ghost sm" data-act="delexp" data-id="${x.id}" type="button" aria-label="حذف">✕</button></div>`;
 }
@@ -1199,6 +1251,25 @@ function viewReport() {
   }));
   const top = Object.values(agg).sort((a, b2) => b2.profit - a.profit).slice(0, 10);
 
+  /* المبيعات حسب البائع */
+  const sellers = {};
+  (b.sales || []).forEach(x => {
+    const k = x.seller || 'غير محدَّد';
+    sellers[k] = sellers[k] || { name: k, count: 0, rev: 0, profit: 0, debt: 0 };
+    sellers[k].count++; sellers[k].rev += n(x.total); sellers[k].profit += n(x.profit);
+    sellers[k].debt += Math.max(0, n(x.total) - n(x.paid));
+  });
+  const sellerRows = Object.values(sellers).sort((a, c) => c.rev - a.rev);
+
+  /* المبيعات حسب طريقة الدفع — المقبوض موزّع على وجهته، والباقي دين */
+  const pays = {};
+  const bump = (k, v) => { if (!v) return; pays[k] = (pays[k] || 0) + v; };
+  (b.sales || []).forEach(x => {
+    bump(x.destId ? (x.destName || destName(x.destId)) : 'كاش في الدرج', n(x.paid));
+    bump('بقي ديناً على الزبائن', Math.max(0, n(x.total) - n(x.paid)));
+  });
+  const payRows = Object.keys(pays).map(k => ({ name: k, amount: r2(pays[k]) })).sort((a, c) => c.amount - a.amount);
+
   const months = monthOptions();
 
   return `
@@ -1240,6 +1311,26 @@ function viewReport() {
       <div class="sec-h"><h2>صافي الربح شهرياً</h2><span class="eyebrow">آخر ١٢ شهراً</span></div>
       <div class="chartwrap"><div id="chartMonthly"></div></div>
       <p class="hint" style="margin:6px 0 0">يُحتسب من دفاتر المبيعات والمصاريف لكل شهر.</p>
+    </section>
+
+    <section class="card">
+      <div class="pad" style="padding-bottom:6px"><div class="sec-h"><h2>المبيعات حسب البائع</h2>
+        <span class="eyebrow">${monthLabel(S.month)}</span></div></div>
+      <div class="tw"><table>
+        <thead><tr><th>البائع</th><th>الفواتير</th><th>المبيعات $</th><th>الربح $</th><th>باع بالدين $</th></tr></thead>
+        <tbody>${sellerRows.length ? sellerRows.map(t => `<tr><td>${esc(t.name)}</td><td class="n">${t.count}</td>
+          <td class="n">${money(t.rev)}</td><td class="n" style="color:var(--good)">${money(t.profit)}</td>
+          <td class="n"${t.debt > 0 ? ' style="color:var(--bad)"' : ''}>${money(t.debt)}</td></tr>`).join('')
+          : '<tr><td colspan="5" style="color:var(--muted);padding:20px;text-align:center">لا مبيعات في هذا الشهر.</td></tr>'}</tbody>
+      </table></div>
+    </section>
+
+    <section class="card">
+      <div class="pad" style="padding-bottom:4px"><div class="sec-h"><h2>المبيعات حسب طريقة الدفع</h2></div></div>
+      <div>
+        ${payRows.map(t => `<div class="bank"><span>${esc(t.name)}</span><b>${money(t.amount)} $</b></div>`).join('')}
+        <div class="bank total"><span>مجموع المبيعات</span><b>${money(sm.revenue)} $</b></div>
+      </div>
     </section>
 
     <section class="card">
@@ -1308,6 +1399,11 @@ function niceTicks(max) {
   return { top: Math.ceil(max / step) * step, step };
 }
 
+/* عرض الرسم = عرض الحاوية الفعلي، أو الحد الأدنى الذي تحتاجه الأعمدة (فيمرّر أفقياً) */
+function chartWidth(id, need) {
+  const el = document.getElementById(id);
+  return Math.max(need, (el && el.clientWidth) || 560);
+}
 function drawCharts() {
   const b = book(S.month);
   const [y, mo] = S.month.split('-').map(Number);
@@ -1320,7 +1416,7 @@ function drawCharts() {
   $('#chartDaily').innerHTML = stackedBars(
     rows.map((r, i) => ({ label: String(i + 1), a: Math.max(0, r.cost), b: Math.max(0, r.profit),
       title: (i + 1) + ' ' + monthLabel(S.month) + ' — مبيعات ' + money(r.cost + r.profit) + ' $ · ربح ' + money(r.profit) + ' $' })),
-    { minW: Math.max(320, days * 21), labelEvery: days > 20 ? 5 : 2 });
+    { minW: chartWidth('chartDaily', days * 21), labelEvery: days > 20 ? 5 : 2 });
 
   const sums = (S.summaries || []).slice(-12);
   const live = summarize(b); live.month = S.month;
@@ -1330,7 +1426,7 @@ function drawCharts() {
   $('#chartMonthly').innerHTML = series.length
     ? stackedBars(series.map(([m, s]) => ({ label: monthLabel(m).split(' ')[0].slice(0, 6), a: 0, b: Math.max(0, n(s.net)),
         title: monthLabel(m) + ' — صافي الربح ' + money(s.net) + ' $', value: n(s.net) })),
-      { minW: Math.max(320, series.length * 56), labelEvery: 1, showValues: true })
+      { minW: chartWidth('chartMonthly', series.length * 56), labelEvery: 1, showValues: true })
     : '<div class="empty">لا بيانات شهرية بعد.</div>';
 }
 
@@ -1364,8 +1460,8 @@ function stackedBars(data, opt) {
     if (opt.showValues && (d.a + d.b) > 0)
       bars += `<text x="${(cx + bw / 2).toFixed(1)}" y="${(base - hA - hB - 6).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="var(--ink-2)" font-family="IBM Plex Mono, monospace">${money0(d.value != null ? d.value : d.a + d.b)}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" preserveAspectRatio="xMidYMid meet"
-    style="display:block;width:100%;min-width:${Math.min(W, 560)}px;height:auto">
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img"
+    style="display:block;min-width:${W}px;height:${H}px">
     ${g}<line x1="${padFree}" x2="${W - padAxis}" y1="${base}" y2="${base}" stroke="var(--line)" stroke-width="1"/>${bars}</svg>`;
 }
 </script>
@@ -1398,6 +1494,19 @@ function viewSettings() {
             <span class="grow"><span class="t">${esc(p.name)}</span><span class="m"><span>الحصة ${n(p.share)}%</span><span>مسحوبات <span class="num">${money(p.drawn)}</span> $</span></span></span>
             <span class="amt">${n(p.share)}%</span></div>`).join('')
           : '<div class="empty">لا شركاء — أضف الشركاء لتقسيم المربح تلقائياً.</div>'}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pad"><div class="sec-h"><h2>البائعون</h2>
+        <button class="btn primary sm" data-act="newstaff" type="button">+ بائع</button></div>
+        <p class="hint" style="margin:0">كل جهاز يختار من يبيع عليه من أعلى الشاشة، فيُسجَّل اسمه على كل فاتورة.</p></div>
+      <div class="list">
+        ${staffList().length ? staffList().map((nm, k) => `
+          <div class="item click" data-act="editstaff" data-i="${k}">
+            <span class="stripe ${nm === S.seller ? 'acc' : ''}"></span>
+            <span class="grow"><span class="t">${esc(nm)}</span>${nm === S.seller ? '<span class="m"><span class="pill acc">يبيع على هذا الجهاز الآن</span></span>' : ''}</span>
+          </div>`).join('') : '<div class="empty">لا بائعين — أضف أسماء من يبيع في المحل.</div>'}
       </div>
     </section>
 
@@ -1460,6 +1569,13 @@ function sel(id, label, options, val) {
   return `<div class="f"><label for="${id}">${esc(label)}</label><select id="${id}">${options.map(o =>
     `<option value="${esc(o.v)}"${String(o.v) === String(val) ? ' selected' : ''}>${esc(o.t)}</option>`).join('')}</select></div>`;
 }
+function sellerField(id) {
+  const list = staffList();
+  if (!list.length)
+    return '<div class="f"><label for="' + id + '">البائع</label><input id="' + id + '" type="text" value="' + esc(who()) + '" placeholder="اكتب الاسم أو أضف البائعين من الإعدادات"></div>';
+  const opts = (who() ? [] : [{ v: '', t: '— اختر البائع —' }]).concat(list.map(nm => ({ v: nm, t: nm })));
+  return sel(id, 'البائع', opts, who());
+}
 const partyOptions = kind => [{ v: '', t: '— اختر —' }].concat(
   S.parties.filter(p => !kind || p.kind === kind).map(p => ({ v: p.id, t: p.name + ' (' + money(Math.abs(n(p.bal))) + '$)' })));
 const siteOptions = () => [{ v: '', t: '— بدون —' }].concat(S.sites.map(s => ({ v: s.id, t: s.name })));
@@ -1472,6 +1588,15 @@ async function saveSettings(patch) {
   paintBrand();
 }
 const addCash = d => saveSettings({ cash: r2(n(S.settings.cash) + n(d)) });
+/* يدخل المبلغ (أو يخرج بقيمة سالبة) إلى الدرج أو إلى حساب مثل شام كاش */
+async function receive(destId, amount) {
+  if (!n(amount)) return;
+  if (!destId) return addCash(amount);
+  const st = SITE(destId);
+  if (!st) return addCash(amount);
+  st.balance = r2(n(st.balance) + n(amount));
+  await saveSite(st);
+}
 
 async function saveProduct(p) { await Store.set('products/' + p.id, p); }
 async function saveParty(p)   { await Store.set('parties/' + p.id, p); }
@@ -1510,19 +1635,23 @@ function addToCart(pid) {
 }
 
 async function commitSale(data) {
-  const lines = S.cart.map(l => ({ pid: l.pid || null, name: l.name, qty: n(l.qty), price: n(l.price), cost: n(l.cost) }))
+  const lines = S.cart.map(l => ({ pid: l.pid || null, sku: (P(l.pid) || {}).sku || '', name: l.name, qty: n(l.qty), price: n(l.price), cost: n(l.cost) }))
                       .filter(l => n(l.qty) > 0);
   if (!lines.length) { toast('السلة فارغة', true); return; }
   const total = r2(lines.reduce((s, l) => s + l.price * l.qty, 0) - n(data.disc));
   const cost  = r2(lines.reduce((s, l) => s + l.cost  * l.qty, 0));
-  const paid  = data.method === 'cash' ? total : r2(Math.min(n(data.paid), total));
-  if (data.method !== 'cash' && !data.partyId) { toast('اختر الزبون لتسجيل الدين', true); return; }
+  if (!data.seller && staffList().length) { toast('اختر البائع قبل تسجيل الفاتورة', true); return; }
+  const full = data.method === 'cash' || data.method === 'sham';
+  const paid  = full ? total : r2(Math.min(n(data.paid), total));
+  if (!full && !data.partyId) { toast('اختر الزبون لتسجيل الدين', true); return; }
 
   const party = PARTY(data.partyId);
   const sale = {
-    id: uid('s'), date: data.date, ts: new Date().toISOString(),
+    id: uid('s'), date: data.date, ts: new Date().toISOString(), time: nowTime(),
     lines, total, cost, profit: r2(total - cost), disc: n(data.disc),
-    paid, method: data.method, partyId: data.partyId || '', partyName: party ? party.name : '',
+    paid, method: data.method, destId: data.destId || '', destName: destName(data.destId),
+    seller: data.seller || who(),
+    partyId: data.partyId || '', partyName: party ? party.name : '',
     note: data.note || ''
   };
 
@@ -1534,7 +1663,7 @@ async function commitSale(data) {
     await saveProduct(p);
   }
   if (total - paid > 0 && data.partyId) await bumpParty(data.partyId, total - paid);
-  await addCash(paid);
+  await receive(sale.destId, paid);
   await Store.append('sales', sale.date, sale);
   S.ledger[monthOf(sale.date)] = null; await loadMonth(monthOf(sale.date), true);
   await saveSummary(monthOf(sale.date));
@@ -1555,7 +1684,7 @@ async function reverseSale(id) {
     await saveProduct(p);
   }
   if (n(s.total) - n(s.paid) > 0 && s.partyId) await bumpParty(s.partyId, -(n(s.total) - n(s.paid)));
-  await addCash(-n(s.paid));
+  await receive(s.destId, -n(s.paid));
   await Store.mutate('sales', monthOf(s.date), id, () => null);
   await loadMonth(monthOf(s.date), true);
   await saveSummary(monthOf(s.date)); S.summaries = null;
@@ -1570,6 +1699,32 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* تصفية */
   case 'poscat':      posCat = ds.v; render(); break;
+  case 'pickseller': {
+    const list = staffList();
+    modal('من يبيع الآن؟',
+      (list.length
+        ? '<div class="chips" style="flex-wrap:wrap">' + list.map(nm =>
+            `<button class="chip" type="button" data-act="setseller" data-v="${esc(nm)}" aria-pressed="${nm === S.seller}">${esc(nm)}</button>`).join('') + '</div>'
+        : '<p class="hint">لا بائعين بعد.</p>') +
+      '<p class="hint">يُسجَّل هذا الاسم على كل فاتورة ومصروف تسجّله من هذا الجهاز، ويبقى محفوظاً عليه حتى تغيّره.</p>' +
+      '<button class="btn" data-act="gostaff" type="button">إدارة البائعين</button>',
+      () => closeModal(), 'تم'); break;
+  }
+  case 'setseller': setSeller(ds.v); closeModal(); toast('البائع الآن: ' + ds.v); break;
+  case 'gostaff': closeModal(); go('settings'); break;
+  case 'newstaff': case 'editstaff': {
+    const list = staffList().slice();
+    const cur = act === 'editstaff' ? list[i] : '';
+    modal(cur ? 'تعديل بائع' : 'بائع جديد', fld('sName', 'الاسم', 'text', cur) +
+      (cur ? '<button class="btn danger" data-act="delstaff" data-i="' + i + '" type="button">حذف</button>' : ''),
+      async () => {
+        const nm = mv('sName').trim();
+        if (!nm) { toast('أدخل الاسم', true); return; }
+        if (cur) { list[i] = nm; if (S.seller === cur) setSeller(nm); } else list.push(nm);
+        await saveSettings({ staff: list }); closeModal(); render();
+      }); break;
+  }
+  case 'delstaff': { const l = staffList().slice(); l.splice(i, 1); await saveSettings({ staff: l }); closeModal(); render(); break; }
   case 'posmode':     posMode = ds.v; render(); break;
   case 'pickadd': {
     const prod = P($('#pkProd') ? $('#pkProd').value : posPick);
@@ -1613,17 +1768,36 @@ async function handle(act, ds, el, fromChange, ev) {
 
   case 'checkout': {
     const total = r2(S.cart.reduce((s, l) => s + n(l.price) * n(l.qty), 0));
+    const methods = ['cash'].concat(shamSite() ? ['sham'] : []).concat(['debt', 'partial']);
     modal('إتمام البيع',
       `<div class="bank total" style="border-radius:8px;border:1px solid var(--accent-line)"><span>المطلوب</span><b>${money(total)} $ · ${money0(toTRY(total))} TL</b></div>` +
-      '<div class="grid2">' + fld('cDate', 'التاريخ', 'date', todayStr()) + fld('cDisc', 'خصم $', 'number', 0, 'step="0.01"') + '</div>' +
-      sel('cMethod', 'طريقة الدفع', [{ v: 'cash', t: 'نقدي كامل' }, { v: 'debt', t: 'على الدين' }, { v: 'partial', t: 'دفعة ونقص' }], 'cash') +
+      '<div class="f"><label>طريقة الدفع</label><div class="chips" id="cMethods">' +
+        methods.map((k, i) => `<button class="chip" type="button" data-m="${k}" aria-pressed="${i === 0}">${PAY[k].label}</button>`).join('') +
+      '</div><div class="hint" id="cHint" style="margin-top:5px">' + PAY.cash.hint + '</div></div>' +
+      '<div class="grid2">' + sellerField('cSeller') + fld('cDate', 'التاريخ', 'date', todayStr()) + '</div>' +
+      '<div class="grid2" id="cDestWrap">' +
+        sel('cDest', 'دخل المبلغ إلى', [{ v: '', t: 'درج المحل (كاش)' }].concat(payTargets().map(x => ({ v: x.id, t: x.name }))), '') +
+        fld('cDisc', 'خصم $', 'number', 0, 'step="0.01"') + '</div>' +
       '<div id="cPayWrap" hidden>' + sel('cParty', 'الزبون', partyOptions(), '') + fld('cPaid', 'المدفوع الآن $', 'number', 0, 'step="0.01"') + '</div>' +
       fld('cNote', 'ملاحظة', 'text', ''),
-      () => commitSale({ date: mv('cDate'), disc: n(mv('cDisc')), method: mv('cMethod'),
-        partyId: mv('cParty'), paid: mv('cMethod') === 'debt' ? 0 : n(mv('cPaid')), note: mv('cNote') }), 'تسجيل');
-    const m = $('#cMethod'), w = $('#cPayWrap');
-    const sync = () => { w.hidden = m.value === 'cash'; const pp = $('#cPaid'); if (pp) pp.disabled = m.value === 'debt'; };
-    m.onchange = sync; sync(); break;
+      () => {
+        const m = $('#cMethods [aria-pressed="true"]').dataset.m;
+        return commitSale({ date: mv('cDate'), disc: n(mv('cDisc')), method: m,
+          destId: m === 'debt' ? '' : mv('cDest'), seller: mv('cSeller').trim(),
+          partyId: mv('cParty'), paid: m === 'debt' ? 0 : n(mv('cPaid')), note: mv('cNote') });
+      }, 'تسجيل');
+    const chips = $$('#cMethods .chip'), dest = $('#cDest'), sham = shamSite();
+    const pick = k => {
+      chips.forEach(c => c.setAttribute('aria-pressed', String(c.dataset.m === k)));
+      $('#cHint').textContent = PAY[k].hint;
+      $('#cPayWrap').hidden = (k === 'cash' || k === 'sham');
+      $('#cDestWrap').querySelector('.f').hidden = (k === 'debt');
+      const pp = $('#cPaid'); if (pp) pp.disabled = (k === 'debt');
+      if (k === 'sham' && sham) dest.value = sham.id;
+      if (k === 'cash') dest.value = '';
+    };
+    chips.forEach(c => c.onclick = () => pick(c.dataset.m));
+    pick('cash'); break;
   }
   case 'delsale': if (confirm('حذف هذه الفاتورة وإرجاع الكميات إلى الجرد؟')) await reverseSale(ds.id); break;
 
@@ -1729,7 +1903,8 @@ async function handle(act, ds, el, fromChange, ev) {
         p.qty = r2(oldQ + q);
         await saveProduct(p);
         const total = r2(q * c), paid = r2(Math.min(n(mv('uPaid')), total));
-        const rec = { id: uid('u'), date: mv('uDate'), supplierId: mv('uSup'), supplierName: PARTY(mv('uSup')) ? PARTY(mv('uSup')).name : '',
+        const rec = { id: uid('u'), date: mv('uDate'), time: nowTime(), seller: who(),
+          supplierId: mv('uSup'), supplierName: PARTY(mv('uSup')) ? PARTY(mv('uSup')).name : '',
           lines: [{ pid: p.id, name: p.name, qty: q, cost: c }], total, paid, note: mv('uNote') };
         if (total - paid > 0 && rec.supplierId) await bumpParty(rec.supplierId, -(total - paid));
         await addCash(-paid);
@@ -1763,12 +1938,16 @@ async function handle(act, ds, el, fromChange, ev) {
     const p = PARTY(ds.id); const dir = act === 'payin' ? 'in' : 'out';
     modal(dir === 'in' ? 'قبض من ' + p.name : 'دفع إلى ' + p.name,
       '<div class="grid2">' + fld('mDate', 'التاريخ', 'date', todayStr()) + fld('mAmt', 'المبلغ $', 'number', '', 'step="0.01"') + '</div>' +
+      '<div class="grid2">' + sellerField('mSeller') +
+        sel('mDest', dir === 'in' ? 'دخل المبلغ إلى' : 'خرج المبلغ من',
+          [{ v: '', t: 'درج المحل (كاش)' }].concat(payTargets().map(x => ({ v: x.id, t: x.name }))), '') + '</div>' +
       fld('mNote', 'ملاحظة', 'text', ''),
       async () => {
         const a = n(mv('mAmt')); if (a <= 0) { toast('أدخل مبلغاً', true); return; }
         await bumpParty(p.id, dir === 'in' ? -a : a);
-        await addCash(dir === 'in' ? a : -a);
-        const rec = { id: uid('m'), date: mv('mDate'), partyId: p.id, partyName: p.name, amount: a, dir, note: mv('mNote') };
+        await receive(mv('mDest'), dir === 'in' ? a : -a);
+        const rec = { id: uid('m'), date: mv('mDate'), time: nowTime(), seller: mv('mSeller').trim() || who(),
+          destId: mv('mDest'), destName: destName(mv('mDest')), partyId: p.id, partyName: p.name, amount: a, dir, note: mv('mNote') };
         await Store.append('payments', rec.date, rec);
         await loadMonth(monthOf(rec.date), true);
         await saveSummary(monthOf(rec.date));
@@ -1784,11 +1963,13 @@ async function handle(act, ds, el, fromChange, ev) {
       '<div class="grid2">' + fld('gBal', 'الرصيد الحالي $', 'number', s ? n(s.balance) : 0, 'step="0.01"') +
       fld('gMin', 'حدّ التنبيه $', 'number', s ? n(s.minBal) : 0, 'step="0.01"') + '</div>' +
       fld('gNote', 'ملاحظة', 'text', s ? s.note : '') +
+      '<label class="row" style="gap:7px;font-size:13.5px"><input id="gPay" type="checkbox" style="width:auto"' + (s && s.isPay ? ' checked' : '') + '> يستقبل مدفوعات الزبائن (شام كاش، بنك، محفظة)</label>' +
+      '<p class="hint" style="margin:0">فعّلها لحسابات الدفع، واتركها فارغة لأرصدة الشراء مثل 5sim وسرمدا كارد.</p>' +
       (s ? `<div class="row"><button class="btn" data-act="topup" data-id="${s.id}" type="button">شحن الرصيد</button>
             <button class="btn danger" data-act="delsite" data-id="${s.id}" type="button">حذف</button></div>` : ''),
       async () => {
         if (!mv('gName').trim()) { toast('أدخل الاسم', true); return; }
-        await saveSite({ id: s ? s.id : uid('g'), name: mv('gName').trim(), balance: n(mv('gBal')), minBal: n(mv('gMin')), note: mv('gNote').trim() });
+        await saveSite({ id: s ? s.id : uid('g'), name: mv('gName').trim(), balance: n(mv('gBal')), minBal: n(mv('gMin')), note: mv('gNote').trim(), isPay: mc('gPay') });
         closeModal(); toast('تم الحفظ');
       }); break;
   }
@@ -1801,7 +1982,8 @@ async function handle(act, ds, el, fromChange, ev) {
       async () => {
         const a = n(mv('tAmt')); if (a <= 0) { toast('أدخل مبلغاً', true); return; }
         s.balance = r2(n(s.balance) + a); await saveSite(s); await addCash(-a);
-        const rec = { id: uid('e'), date: mv('tDate'), kind: 'topup', who: s.name, siteId: s.id, amount: a, note: mv('tNote') };
+        const rec = { id: uid('e'), date: mv('tDate'), time: nowTime(), kind: 'topup', who: s.name,
+          seller: who(), siteId: s.id, amount: a, note: mv('tNote') };
         await Store.append('expenses', rec.date, rec);
         await loadMonth(monthOf(rec.date), true); await saveSummary(monthOf(rec.date));
         closeModal(); render(); toast('شُحن الرصيد');
@@ -1812,11 +1994,15 @@ async function handle(act, ds, el, fromChange, ev) {
   case 'newexp':
     modal('مصروف',
       '<div class="grid2">' + fld('xDate', 'التاريخ', 'date', todayStr()) + fld('xAmt', 'المبلغ $', 'number', '', 'step="0.01"') + '</div>' +
-      sel('xCat', 'البند', EXP_CATS.map(c => ({ v: c, t: c })), EXP_CATS[0]) + fld('xNote', 'ملاحظة', 'text', ''),
+      sel('xCat', 'البند', EXP_CATS.map(c => ({ v: c, t: c })), EXP_CATS[0]) +
+      '<div class="grid2">' + sellerField('xSeller') +
+        sel('xDest', 'خرج المبلغ من', [{ v: '', t: 'درج المحل (كاش)' }].concat(payTargets().map(x => ({ v: x.id, t: x.name }))), '') + '</div>' +
+      fld('xNote', 'ملاحظة', 'text', ''),
       async () => {
         const a = n(mv('xAmt')); if (a <= 0) { toast('أدخل مبلغاً', true); return; }
-        const rec = { id: uid('e'), date: mv('xDate'), kind: 'expense', cat: mv('xCat'), who: mv('xCat'), amount: a, note: mv('xNote') };
-        await addCash(-a); await Store.append('expenses', rec.date, rec);
+        const rec = { id: uid('e'), date: mv('xDate'), time: nowTime(), kind: 'expense', cat: mv('xCat'), who: mv('xCat'),
+          seller: mv('xSeller').trim() || who(), destId: mv('xDest'), destName: destName(mv('xDest')), amount: a, note: mv('xNote') };
+        await receive(rec.destId, -a); await Store.append('expenses', rec.date, rec);
         await loadMonth(monthOf(rec.date), true); await saveSummary(monthOf(rec.date)); S.summaries = null;
         closeModal(); render(); toast('سُجّل المصروف');
       }, 'تسجيل'); break;
@@ -1834,7 +2020,8 @@ async function handle(act, ds, el, fromChange, ev) {
         const k = +mv('wWho'); const list = (S.settings.partners || []).slice();
         list[k] = Object.assign({}, list[k], { drawn: r2(n(list[k].drawn) + a) });
         await saveSettings({ partners: list, cash: r2(n(S.settings.cash) - a) });
-        const rec = { id: uid('e'), date: mv('wDate'), kind: 'withdrawal', who: list[k].name, amount: a, note: mv('wNote') };
+        const rec = { id: uid('e'), date: mv('wDate'), time: nowTime(), kind: 'withdrawal', who: list[k].name,
+          seller: who(), amount: a, note: mv('wNote') };
         await Store.append('expenses', rec.date, rec);
         await loadMonth(monthOf(rec.date), true); await saveSummary(monthOf(rec.date)); S.summaries = null;
         closeModal(); render(); toast('سُجّلت المسحوبات');
@@ -1849,7 +2036,7 @@ async function handle(act, ds, el, fromChange, ev) {
         const list = (S.settings.partners || []).map(p => p.name === rec.who ? Object.assign({}, p, { drawn: r2(n(p.drawn) - n(rec.amount)) }) : p);
         await saveSettings({ partners: list });
       }
-      if (rec.kind !== 'recon') await addCash(n(rec.amount));
+      if (rec.kind !== 'recon') await receive(rec.destId || '', n(rec.amount));
       await Store.mutate('expenses', S.month, ds.id, () => null);
       await loadMonth(S.month, true); await saveSummary(S.month); S.summaries = null; render();
     }
@@ -1916,9 +2103,11 @@ async function handle(act, ds, el, fromChange, ev) {
     break;
   case 'expmonth': {
     const b = book(S.month);
-    const rows = [['التاريخ','الوقت','الأصناف','الإجمالي $','التكلفة $','الربح $','المدفوع $','الزبون','ملاحظة']];
-    (b.sales || []).forEach(s => rows.push([s.date, (s.ts || '').slice(11, 16), (s.lines || []).map(l => l.name + '×' + l.qty).join(' | '),
-      n(s.total), n(s.cost), n(s.profit), n(s.paid), s.partyName, s.note]));
+    const rows = [['التاريخ','الوقت','البائع','طريقة الدفع','دخل المبلغ إلى','الأصناف','الإجمالي $','التكلفة $','الربح $','المدفوع $','الباقي ديناً $','الزبون','ملاحظة']];
+    (b.sales || []).forEach(s => rows.push([s.date, s.time || (s.ts || '').slice(11, 16), s.seller || '', payLabel(s.method),
+      s.destId ? (s.destName || destName(s.destId)) : 'كاش في الدرج',
+      (s.lines || []).map(l => (l.sku ? l.sku + ' ' : '') + l.name + '×' + l.qty).join(' | '),
+      n(s.total), n(s.cost), n(s.profit), n(s.paid), r2(n(s.total) - n(s.paid)), s.partyName, s.note]));
     const sm = summarize(b);
     rows.push([], ['المجموع', '', '', sm.revenue, sm.cost, sm.gross], ['المصاريف', '', '', sm.expenses], ['صافي الربح', '', '', sm.net]);
     download('مبيعات-' + S.month + '.csv', csv(rows)); break;
