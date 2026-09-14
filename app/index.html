@@ -341,6 +341,13 @@ tfoot td{font-weight:700;border-top:1px solid var(--line);border-bottom:0;backgr
 .sheet footer{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:13px 18px;display:flex;gap:9px}
 .sheet footer .btn{flex:1;justify-content:center;padding:11px}
 
+/* مؤشّر الاتصال وطابور الإرسال */
+.netbadge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;font-size:11.5px;
+  font-weight:700;cursor:pointer;border:1px solid var(--warn);background:var(--warn-soft);color:var(--warn);white-space:nowrap}
+.netbadge.off{border-color:var(--bad);background:var(--bad-soft);color:var(--bad)}
+.netbadge svg{width:14px;height:14px;stroke-width:2}
+.netbadge .dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+
 /* بوابة الدخول */
 #gate:empty{display:none}
 .gate{position:fixed;inset:0;z-index:300;background:var(--nav);display:flex;align-items:center;justify-content:center;padding:20px}
@@ -412,6 +419,7 @@ tfoot td{font-weight:700;border-top:1px solid var(--line);border-bottom:0;backgr
           <button class="sellerbtn" id="hsub" data-act="pickseller" type="button">…</button></div>
       </div>
       <div class="crumbs" id="crumbs"></div>
+      <button class="netbadge" id="netBadge" data-act="netinfo" type="button" hidden></button>
       <div class="stamp" id="stamp"></div>
       <button class="iconbtn" id="btnTheme" type="button" aria-label="تبديل الوضع الليلي"></button>
       <button class="avatar" id="avatar" data-act="pickseller" type="button" aria-label="البائع الحالي">؟</button>
@@ -482,6 +490,59 @@ const Store = (() => {
   const fire = key => { const s = subs.get(key); if (s) s.forEach(cb => { try { cb(); } catch (e) { console.error(e); } }); };
   const collOf = p => p.split('/').slice(0, -1).join('/');
 
+  /* ---------- طابور الإرسال ----------
+     إن سقط الاتصال أثناء البيع تُحفظ الحركة محلياً وتُصفّ هنا، ثم تُرسَل
+     إلى الخادم فور عودة الشبكة. القيود تُعاد كـ«إضافة» لا ككتابة مستند
+     كامل، حتى لا تمحو ما سجّله جهاز آخر في الأثناء. */
+  const OBK = 'daftar.outbox';
+  let outbox = [];
+  let flushing = false;
+  const obLoad = () => { try { outbox = JSON.parse(localStorage.getItem(OBK) || '[]'); } catch (e) { outbox = []; } };
+  const obSave = () => { try { localStorage.setItem(OBK, JSON.stringify(outbox.slice(-500))); } catch (e) {} };
+  const obPush = item => { outbox.push(Object.assign({ at: new Date().toISOString() }, item)); obSave(); onQueue(); };
+  const denied = e => e && (e.code === 'invalid_argument' || e.code === 'revoked' ||
+                            e.code === 'not_granted' || e.code === 'quota_exceeded');
+  let onQueue = () => {};
+  obLoad();
+
+  async function flush() {
+    if (flushing || !db || !outbox.length) return;
+    flushing = true;
+    try {
+      while (outbox.length) {
+        const it = outbox[0];
+        try {
+          if (it.op === 'set') await db.doc(it.path).set(it.obj);
+          else if (it.op === 'del') await db.doc(it.path).delete();
+          else if (it.op === 'append') { if (!(await appendRemote(it.coll, it.month, it.entry))) throw new Error('append'); }
+        } catch (e) {
+          if (denied(e)) { outbox.shift(); obSave(); continue; }   /* مرفوض نهائياً — يُسقَط */
+          break;                                                    /* الشبكة — نعيد المحاولة لاحقاً */
+        }
+        outbox.shift(); obSave();
+      }
+    } finally { flushing = false; onQueue(); }
+  }
+
+  /* إضافة قيد على الخادم مباشرة، بلا تكرار إن كان مسجّلاً */
+  async function appendRemote(coll, m, entry) {
+    for (let part = 1; part <= 40; part++) {
+      const id = part === 1 ? m : m + '.p' + part;
+      const snap = await db.doc(coll + '/' + id).get();
+      const body = snap.exists ? snap.data() : null;
+      if (body && (body.items || []).some(x => x.id === entry.id)) return true;   /* مسجّل سلفاً */
+      if (!body) { await db.doc(coll + '/' + id).set({ month: m, items: [entry] }); return true; }
+      if (JSON.stringify(body).length > 200000 && (body.items || []).length) continue;
+      body.items = (body.items || []).concat([entry]);
+      await db.doc(coll + '/' + id).set(body);
+      return true;
+    }
+    return false;
+  }
+
+  addEventListener('online', () => flush());
+  setInterval(() => flush(), 15000);
+
   async function init() {
     try { db = await window.claude?.use?.('db'); } catch (e) { db = null; }
     live = !!db;
@@ -496,14 +557,14 @@ const Store = (() => {
   }
 
   /* كتابة مستند كامل */
-  async function set(path, obj) {
+  async function set(path, obj, noQueue) {
     lsSet(path, obj);
     fire(path); fire(collOf(path));
     if (!db) return true;
     try { await db.doc(path).set(obj); return true; }
     catch (e) {
-      const denied = e && (e.code === 'invalid_argument' || e.code === 'revoked');
-      toast(denied ? 'صلاحيتك لا تسمح بتعديل هذا — راجع صاحب المحل' : 'تعذّر الحفظ على الخادم — حُفظ محلياً فقط', true);
+      if (denied(e)) { toast('صلاحيتك لا تسمح بتعديل هذا — راجع صاحب المحل', true); return false; }
+      if (!noQueue) obPush({ op: 'set', path, obj });
       return false;
     }
   }
@@ -511,7 +572,8 @@ const Store = (() => {
   async function del(path) {
     lsDel(path); fire(path); fire(collOf(path));
     if (!db) return true;
-    try { await db.doc(path).delete(); return true; } catch (e) { return false; }
+    try { await db.doc(path).delete(); return true; }
+    catch (e) { if (!denied(e)) obPush({ op: 'del', path }); return false; }
   }
 
   /* قراءة مجموعة كاملة */
@@ -569,6 +631,12 @@ const Store = (() => {
   /* إضافة قيد إلى دفتر الشهر، مع تقسيم تلقائي إذا امتلأ المستند */
   async function append(coll, dateStr, entry) {
     const m = monthOf(dateStr);
+    /* لا يُضاف قيد مسجّل سلفاً — يجعل إعادة الإرسال آمنة */
+    for (let part = 1; part <= 40; part++) {
+      const body = await get(coll + '/' + (part === 1 ? m : m + '.p' + part));
+      if (!body) break;
+      if ((body.items || []).some(x => x.id === entry.id)) return part === 1 ? m : m + '.p' + part;
+    }
     for (let part = 1; part <= 40; part++) {
       const id = part === 1 ? m : m + '.p' + part;
       const path = coll + '/' + id;
@@ -577,7 +645,8 @@ const Store = (() => {
       body.items = Array.isArray(body.items) ? body.items : [];
       if (JSON.stringify(body).length > 200000 && body.items.length) continue;
       body.items = body.items.concat([entry]);
-      await set(path, body);
+      const ok = await set(path, body, true);
+      if (!ok && db) { obPush({ op: 'append', coll, month: m, entry }); return id; }
       /* تحقّق: إن ضاع القيد بسبب كتابة متزامنة، أعده */
       if (db) {
         const check = await get(path);
@@ -622,7 +691,10 @@ const Store = (() => {
     return false;
   }
 
-  return { init, get, set, del, list, watch, watchDoc, lease, append, readMonth, mutate, get isLive() { return live; } };
+  return { init, get, set, del, list, watch, watchDoc, lease, append, readMonth, mutate, flush,
+    onQueueChange(f) { onQueue = f; },
+    get pending() { return outbox.length; },
+    get isLive() { return live; } };
 })();
 
 /* ---------- 3. الحالة ---------- */
@@ -633,11 +705,15 @@ const DEFAULT_SETTINGS = {
   cash: 0,
   lowStock: 2,
   lockMinutes: 0,
+  defaultLimit: 0,
   partners: [],
   otherAssets: [],
   customGroups: [],
   staff: [],
-  customSpend: []
+  customSpend: [],
+  margins: {},
+  defaultMargin: 40,
+  roundTo: 0.25
 };
 const CATS = [
   { id: 'accessory', label: 'اكسسوارات', stock: true },
@@ -691,6 +767,23 @@ function inferGroup(p) {
   }
   const hay = ((p.name || '') + ' ' + (p.brand || '')).toLowerCase();
   return allGroups().find(g => (g.kw || []).some(k => hay.includes(k))) || groupByName('متفرقات');
+}
+
+/* مطابقة الباركود: الباركود أولاً ثم كود المحل ثم رمز المصنّع */
+function findByCode(code) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c) return null;
+  const eq = f => S.products.find(p => p.active !== false && String(p[f] || '').trim().toLowerCase() === c);
+  return eq('barcode') || eq('sku') || eq('code') || null;
+}
+
+/* سعر البيع من التكلفة وهامش النوع، مع تقريب اختياري */
+const marginOf = g => { const m = (S.settings.margins || {})[g]; return m === undefined || m === '' ? n(S.settings.defaultMargin) : n(m); };
+function priceFrom(cost, margin, step) {
+  const raw = n(cost) * (1 + n(margin) / 100);
+  const st = step === undefined ? n(S.settings.roundTo) : n(step);
+  if (!st || raw <= 0) return r2(raw);
+  return r2(Math.ceil(raw / st) * st);
 }
 
 /* الكود التالي ضمن نوع معيّن: SPK-001 ، SPK-002 … */
@@ -856,7 +949,7 @@ const SITE = id => S.sites.find(s => s.id === id);
 const partnerShare = p => (n(p.share) || 0) / 100;
 
 /* ---------- 4. دفتر الشهر ---------- */
-const BOOKS = ['sales', 'purchases', 'expenses', 'payments'];
+const BOOKS = ['sales', 'purchases', 'expenses', 'payments', 'returns'];
 const ALL_BOOKS = BOOKS.concat(['audit']);
 
 async function loadMonth(m, force) {
@@ -866,13 +959,15 @@ async function loadMonth(m, force) {
   S.ledger[m] = book;
   return book;
 }
-const book = m => S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], audit: [] };
+const book = m => S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], returns: [], audit: [] };
 
 /* ملخّص الشهر — يُحفظ ليبقى تقرير السنة سريعاً */
 function summarize(b) {
-  const sales = b.sales || [], exps = b.expenses || [], pays = b.payments || [];
-  const revenue = sales.reduce((s, x) => s + n(x.total), 0);
-  const cost    = sales.reduce((s, x) => s + n(x.cost), 0);
+  const sales = b.sales || [], exps = b.expenses || [], pays = b.payments || [], rets = b.returns || [];
+  const retTotal = rets.reduce((s, x) => s + n(x.total), 0);
+  const retCost  = rets.reduce((s, x) => s + n(x.cost), 0);
+  const revenue = sales.reduce((s, x) => s + n(x.total), 0) - retTotal;
+  const cost    = sales.reduce((s, x) => s + n(x.cost), 0) - retCost;
   const gross   = revenue - cost;
   const spend   = exps.filter(x => x.kind === 'expense').reduce((s, x) => s + n(x.amount), 0);
   const draws   = exps.filter(x => x.kind === 'withdrawal').reduce((s, x) => s + n(x.amount), 0);
@@ -881,6 +976,7 @@ function summarize(b) {
     revenue: r2(revenue), cost: r2(cost), gross: r2(gross),
     expenses: r2(spend), withdrawals: r2(draws), topups: r2(topups),
     net: r2(gross - spend), count: sales.length,
+    returns: r2(retTotal), returnsCount: rets.length,
     collected: r2(pays.filter(p => p.dir === 'in').reduce((s, x) => s + n(x.amount), 0))
   };
 }
@@ -895,6 +991,9 @@ async function boot() {
   renderNav();
   render();                                  // ارسم فوراً قبل انتظار القاعدة
   const liveDb = await Store.init();
+  Store.onQueueChange(() => { paintNet(); });
+  paintNet();
+  setInterval(paintNet, 5000);
   const stx = $('#railStatusTxt');
   if (stx) stx.textContent = liveDb ? 'مساحة خاصة بصاحب المحل' : 'وضع محلي — على هذا الجهاز فقط';
 
@@ -905,6 +1004,7 @@ async function boot() {
     if (!Array.isArray(S.settings.customGroups)) S.settings.customGroups = [];
     if (!Array.isArray(S.settings.staff)) S.settings.staff = [];
     if (!Array.isArray(S.settings.customSpend)) S.settings.customSpend = [];
+    if (!S.settings.margins || typeof S.settings.margins !== 'object') S.settings.margins = {};
     paintBrand(); render();
   });
   Store.watchDoc('state/cash', d => {
@@ -946,11 +1046,28 @@ function watchCurrentMonth() {
     const items = docs.filter(d => d.month === m)
                       .sort((x, y) => String(x.id).localeCompare(String(y.id)))
                       .flatMap(d => d.items || []);
-    S.ledger[m] = S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], audit: [] };
+    S.ledger[m] = S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], returns: [], audit: [] };
     S.ledger[m][b] = items;
     if (S.ready) render();
   }, ['month', '==', m]));
 }
+
+/* حالة الشبكة: يظهر الشريط فقط عند وجود مشكلة أو قيود بانتظار الإرسال */
+function paintNet() {
+  const el = $('#netBadge');
+  if (!el) return;
+  const pend = Store.pending;
+  const off = !navigator.onLine;
+  if (!pend && !off) { el.hidden = true; return; }
+  el.hidden = false;
+  el.classList.toggle('off', off);
+  el.innerHTML = '<span class="dot"></span>' +
+    (off ? 'غير متصل' : 'بانتظار الإرسال') +
+    (pend ? ' · ' + pend : '');
+  el.title = pend ? pend + ' حركة محفوظة على الجهاز بانتظار الإرسال' : 'لا اتصال بالإنترنت';
+}
+addEventListener('online', paintNet);
+addEventListener('offline', paintNet);
 
 function paintBrand() {
   const nm = S.settings.shopName || 'دفتر المحل';
@@ -985,6 +1102,10 @@ const ICONS = {
   coin:   '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.6v8.8M14.3 9.6c-.5-.7-1.4-1-2.3-1-1.3 0-2.3.7-2.3 1.8 0 2.4 4.6 1.2 4.6 3.6 0 1.1-1 1.8-2.3 1.8-1 0-1.9-.4-2.4-1.1"/>',
   clock:  '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.4V12l3 1.8"/>',
   refresh:'<path d="M20.3 11.2a8.3 8.3 0 1 0-.6 4.6"/><path d="M20.6 5.8v5.4h-5.4"/>',
+  cloud:  '<path d="M6.8 18.4h10.4a3.8 3.8 0 0 0 .5-7.6 5.6 5.6 0 0 0-10.8-1.2 3.9 3.9 0 0 0-.1 8.8z"/>',
+  scan:   '<path d="M3.6 8.4V6.2a2.6 2.6 0 0 1 2.6-2.6h2.2M15.6 3.6h2.2A2.6 2.6 0 0 1 20.4 6.2v2.2M20.4 15.6v2.2a2.6 2.6 0 0 1-2.6 2.6h-2.2M8.4 20.4H6.2a2.6 2.6 0 0 1-2.6-2.6v-2.2"/><path d="M3.6 12h16.8"/>',
+  tag:    '<path d="M3.6 11.2V5.4a1.8 1.8 0 0 1 1.8-1.8h5.8l9 9-7.6 7.6z"/><circle cx="8" cy="8" r="1.4"/>',
+  back:   '<path d="M9.4 6.4 4 11.8l5.4 5.4"/><path d="M4 11.8h11.4a4.6 4.6 0 0 1 4.6 4.6v1.4"/>',
   moon:   '<path d="M20.8 13a8.8 8.8 0 1 1-9.6-9.6A6.9 6.9 0 0 0 20.8 13Z"/>',
   logout: '<path d="M14.6 16.4 19 12l-4.4-4.4M19 12H8.4"/><path d="M10.6 4.5H6.2A1.7 1.7 0 0 0 4.5 6.2v11.6a1.7 1.7 0 0 0 1.7 1.7h4.4"/>',
   shield: '<path d="M12 3.2 5 6v5.5c0 4.2 2.9 8.1 7 9.3 4.1-1.2 7-5.1 7-9.3V6z"/><path d="m9.4 12 1.9 1.9 3.5-3.6"/>',
@@ -1167,6 +1288,7 @@ function viewPOS() {
   const pro = mine.reduce((s, x) => s + n(x.profit), 0);
   const onDebt = mine.reduce((s, x) => s + (n(x.total) - n(x.paid)), 0);
 
+  const todayRets = (b.returns || []).filter(x => x.date === td);
   const cartTotal = S.cart.reduce((s, l) => s + n(l.price) * n(l.qty), 0);
   const cartCost  = S.cart.reduce((s, l) => s + n(l.cost)  * n(l.qty), 0);
 
@@ -1188,8 +1310,12 @@ function viewPOS() {
           <button class="chip" data-act="posmode" data-v="search" aria-pressed="${posMode === 'search'}" type="button">بحث سريع</button>
         </div>
         ${posMode === 'pick' ? pickPanel() : `
-        <div class="f"><label for="posq">ابحث بالاسم أو الكود</label>
-          <input id="posq" type="search" placeholder="مثال: شاحن، CHG-004، GTS-1882" value="${esc(posQuery)}" autocomplete="off"></div>
+        <div class="f"><label for="posq">امسح الباركود أو ابحث بالاسم والكود</label>
+          <div class="row" style="flex-wrap:nowrap">
+            <input id="posq" class="grow" type="search" placeholder="امسح الباركود، أو اكتب: شاحن، CHG-004" value="${esc(posQuery)}" autocomplete="off">
+            <button class="btn" data-act="scanpos" type="button" aria-label="مسح بالكاميرا">${svg('scan')}</button>
+          </div>
+          <span class="hint">قارئ الباركود الموصول بالجهاز يكتب هنا مباشرة — اضغط Enter ليُضاف الصنف فوراً.</span></div>
         <div class="chips" style="margin-top:10px">
           <button class="chip" data-act="poscat" data-v="" aria-pressed="${posCat === ''}" type="button">الكل</button>
           ${CATS.map(c => `<button class="chip" data-act="poscat" data-v="${c.id}" aria-pressed="${posCat === c.id}" type="button">${c.label}</button>`).join('')}
@@ -1216,6 +1342,13 @@ function viewPOS() {
     </aside>
   </div>
 
+  ${todayRets.length ? `<section class="card" style="margin-top:16px">
+    <div class="pad" style="padding-bottom:4px"><div class="sec-h" style="margin-bottom:0"><h2>مرتجعات اليوم</h2>
+      <div class="row"><span class="pill out">${money(todayRets.reduce((a, x) => a + n(x.total), 0))} $</span>
+      ${can('reports') ? '<button class="btn ghost sm" data-act="expret" type="button">تصدير الشهر</button>' : ''}</div></div></div>
+    <div class="list">${todayRets.slice().reverse().map(retRow).join('')}</div>
+  </section>` : ''}
+
   <section class="card" style="margin-top:16px">
     <div class="pad" style="padding-bottom:4px"><div class="sec-h" style="margin-bottom:0"><h2>مبيعات اليوم</h2>
       <span class="eyebrow">${td}</span></div></div>
@@ -1227,7 +1360,23 @@ function viewPOS() {
 }
 viewPOS.after = () => {
   const q = $('#posq');
-  if (q) q.oninput = () => { posQuery = q.value; $('#posResults').innerHTML = posResults(); };
+  if (q) {
+    q.oninput = () => { posQuery = q.value; $('#posResults').innerHTML = posResults(); };
+    /* قارئ الباركود يُنهي القراءة بـ Enter: أضف الصنف مباشرة وفرّغ الحقل */
+    q.onkeydown = e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const raw = q.value.trim();
+      if (!raw) return;
+      const hit = findByCode(raw);
+      if (hit) { q.value = ''; posQuery = ''; onScanned(raw); return; }
+      const m = S.products.filter(p => p.active !== false &&
+        (p.name + ' ' + (p.brand || '')).toLowerCase().includes(raw.toLowerCase()));
+      if (m.length === 1) { q.value = ''; posQuery = ''; addToCart(m[0].id); toast('أُضيف ' + m[0].name); }
+      else toast(m.length ? 'أكثر من نتيجة — اختر من القائمة' : 'لا صنف بهذا الرمز', true);
+    };
+    if (posMode === 'search') setTimeout(() => q.focus(), 30);
+  }
   const gs = $('#pkGroup'), ps = $('#pkProd');
   if (gs && ps) {
     gs.onchange = () => { posGroup = gs.value; posPick = ''; ps.innerHTML = pickProdOptions(); posPick = ps.value; syncPick(); };
@@ -1305,7 +1454,7 @@ function posResults() {
   const q = posQuery.trim().toLowerCase();
   let list = S.products.filter(p => p.active !== false);
   if (posCat) list = list.filter(p => p.cat === posCat);
-  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.group || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
+  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.barcode || '') + ' ' + (p.group || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
   else list = list.slice(0, 18);
   if (!list.length) return emptyBox('لا نتائج مطابقة', 'جرّب اسماً آخر، أو أضف بنداً حراً إن كان الصنف غير مسجّل.', 'search');
   return '<div class="results"><div class="pgrid">' + list.slice(0, 80).map(p => {
@@ -1345,6 +1494,17 @@ function cartLine(l, i) {
   </div>`;
 }
 
+const RET_MODE = { cash: 'نقداً من الدرج', credit: 'رصيد له عندنا', debt: 'خصم من دينه' };
+function retRow(x) {
+  return `<div class="item"><span class="rowic" style="background:var(--bad-soft);color:var(--bad)">${svg('back')}</span>
+    <span class="grow"><span class="t">${esc((x.lines || []).map(l => l.name + '×' + l.qty).join('، '))}</span>
+      <span class="m"><span class="mono">${esc(x.date)} · ${esc(x.time || '')}</span>
+        ${x.seller ? '<span class="pill acc">' + esc(x.seller) + '</span>' : ''}
+        <span class="pill out">${esc(RET_MODE[x.mode] || (SITE(String(x.mode).slice(5)) ? 'إلى ' + SITE(String(x.mode).slice(5)).name : 'مرتجع'))}</span>
+        ${x.partyName ? '<span>' + esc(x.partyName) + '</span>' : ''}
+        ${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
+    <span class="amt" style="color:var(--bad)">−${money(x.total)} $</span></div>`;
+}
 function saleRow(s) {
   const names = (s.lines || []).map(l => l.name).join('، ');
   const unpaid = n(s.total) - n(s.paid);
@@ -1358,6 +1518,7 @@ function saleRow(s) {
         ${unpaid > 0 ? '<span class="pill low">باقٍ ' + money(unpaid) + ' $ · ' + esc(s.partyName || '—') + '</span>' : ''}
         ${s.note ? '<span>' + esc(s.note) + '</span>' : ''}</span></span>
     <span class="amt">${money(s.total)} $</span>
+    ${can('sell') ? '<button class="btn ghost sm" data-act="retsale" data-id="' + s.id + '" type="button" title="مرتجع">' + svg('back') + '</button>' : ''}
     ${can('delete') ? '<button class="btn ghost sm" data-act="delsale" data-id="' + s.id + '" type="button" aria-label="حذف الفاتورة">✕</button>' : ''}
   </div>`;
 }
@@ -1397,6 +1558,7 @@ function viewStock() {
       <div class="pad" style="padding-bottom:10px">
         <div class="sec-h"><h2>الأصناف</h2>
           <div class="row">
+            <button class="btn primary sm" data-act="bulkprice" type="button">${svg('tag')} تسعير بالجملة</button>
             <button class="btn sm" data-act="stocktake" type="button">وضع الجرد</button>
             <button class="btn sm" data-act="expstock" type="button">تصدير</button>
             <button class="btn primary sm" data-act="newprod" type="button">+ صنف</button>
@@ -1445,7 +1607,7 @@ function stockList() {
   if (stockFilter === 'out') list = list.filter(p => isStocked(p) && n(p.qty) <= 0);
   if (stockFilter === 'noprice') list = list.filter(p => !n(p.price));
   const q = stockQuery.trim().toLowerCase();
-  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
+  if (q) list = list.filter(p => (p.name + ' ' + (p.brand || '') + ' ' + (p.code || '') + ' ' + (p.sku || '') + ' ' + (p.barcode || '') + ' ' + (p.imei || '')).toLowerCase().includes(q));
   return '<div class="list">' +
     (list.length ? list.slice(0, 400).map(prodRow).join('') : emptyBox('لا أصناف مطابقة', 'غيّر البحث أو الفلاتر لعرض أصناف أخرى.', 'search')) + '</div>' +
     (list.length > 400 ? '<div class="empty">تُعرض أول 400 صنف — ضيّق البحث لرؤية الباقي.</div>' : '');
@@ -1478,22 +1640,36 @@ function purchRow(x) {
 }
 
 /* ---------- 10. الديون ---------- */
-let debtSide = 'us';   // us = لنا عندهم | them = علينا لهم
+let debtSide = 'us', debtAgeFilter = '';
 function viewDebts() {
   const owedToUs = S.parties.filter(p => n(p.bal) > 0);
   const weOwe    = S.parties.filter(p => n(p.bal) < 0);
   const totalIn  = owedToUs.reduce((s, p) => s + n(p.bal), 0);
   const totalOut = weOwe.reduce((s, p) => s - n(p.bal), 0);
-  const list = (debtSide === 'us' ? owedToUs : weOwe)
-    .slice().sort((a, b) => Math.abs(n(b.bal)) - Math.abs(n(a.bal)));
+  const late = owedToUs.filter(p => (debtAge(p) || 0) >= 60);
+  const lateSum = late.reduce((s, p) => s + n(p.bal), 0);
+  const over = owedToUs.filter(p => overLimit(p) > 0);
+  const counts = {};
+  AGE_BUCKETS.forEach(bk => counts[bk.id] = owedToUs.filter(p => (bucketOf(debtAge(p)) || {}).id === bk.id).length);
+  const unknown = owedToUs.filter(p => debtAge(p) === null).length;
+
+  let list = (debtSide === 'us' ? owedToUs : weOwe).slice();
+  if (debtSide === 'us' && debtAgeFilter)
+    list = list.filter(p => debtAgeFilter === 'over' ? overLimit(p) > 0
+      : debtAgeFilter === 'unknown' ? debtAge(p) === null
+      : (bucketOf(debtAge(p)) || {}).id === debtAgeFilter);
+  list.sort((a, b) => (debtAge(b) || 0) - (debtAge(a) || 0) || Math.abs(n(b.bal)) - Math.abs(n(a.bal)));
 
   return `
   ${kpi([
     { k: 'دينات للمحل (لنا)', v: usd(totalIn), s: tryv(toTRY(totalIn)), tone: 'pos', i: 'users' },
+    { k: 'متأخر أكثر من ٦٠ يوماً', v: usd(lateSum), s: late.length + ' حساب', tone: lateSum > 0 ? 'neg' : 'pos', i: 'clock' },
     { k: 'دين على المحل (علينا)', v: usd(totalOut), s: tryv(toTRY(totalOut)), tone: 'neg', i: 'alert' },
-    { k: 'الصافي', v: usd(totalIn - totalOut), tone: totalIn - totalOut >= 0 ? 'pos' : 'neg', i: 'coin' },
-    { k: 'عدد الحسابات', v: '<span class="num">' + (owedToUs.length + weOwe.length) + '</span>', i: 'clip', tone: 'vio' }
+    { k: 'تجاوزوا سقفهم', v: '<span class="num">' + over.length + '</span>',
+      s: over.length ? 'بمجموع ' + money(over.reduce((s2, p) => s2 + overLimit(p), 0)) + ' $' : 'لا أحد', tone: over.length ? 'neg' : 'pos', i: 'shieldx' }
   ])}
+  ${unknown ? `<div class="banner" style="margin-top:14px"><span class="bic">${svg('clock')}</span>
+    <span><b>${unknown} حساباً بلا تاريخ بداية للدين</b>هذه ديون قديمة مستوردة من الإكسل. افتح الحساب وأدخل «تاريخ بداية الدين» ليُحسب عمره.</span></div>` : ''}
 
   <div class="stack" style="margin-top:14px">
     <section class="card">
@@ -1505,6 +1681,12 @@ function viewDebts() {
           <button class="chip" data-act="debtside" data-v="us" aria-pressed="${debtSide === 'us'}" type="button">لنا عندهم (${owedToUs.length})</button>
           <button class="chip" data-act="debtside" data-v="them" aria-pressed="${debtSide === 'them'}" type="button">علينا لهم (${weOwe.length})</button>
         </div>
+        ${debtSide === 'us' ? `<div class="chips" style="margin-top:7px">
+          <button class="chip" data-act="debtage" data-v="" aria-pressed="${debtAgeFilter === ''}" type="button">الكل</button>
+          ${AGE_BUCKETS.map(bk => `<button class="chip" data-act="debtage" data-v="${bk.id}" aria-pressed="${debtAgeFilter === bk.id}" type="button">${bk.label} (${counts[bk.id]})</button>`).join('')}
+          ${over.length ? `<button class="chip" data-act="debtage" data-v="over" aria-pressed="${debtAgeFilter === 'over'}" type="button">تجاوز السقف (${over.length})</button>` : ''}
+          ${unknown ? `<button class="chip" data-act="debtage" data-v="unknown" aria-pressed="${debtAgeFilter === 'unknown'}" type="button">بلا تاريخ (${unknown})</button>` : ''}
+        </div>` : ''}
       </div>
       <div class="list">${list.length ? list.map(partyRow).join('') : emptyBox('لا حسابات في هذا الجانب', 'الحسابات التي لها رصيد في هذا الاتجاه ستظهر هنا.', 'users')}</div>
     </section>
@@ -1517,11 +1699,14 @@ function viewDebts() {
 }
 function partyRow(p) {
   const bal = n(p.bal);
+  const age = debtAge(p), bk = bucketOf(age), ov = overLimit(p);
   return `<div class="item click" data-act="party" data-id="${p.id}">
-    <span class="stripe ${bal > 0 ? 'good' : 'bad'}"></span>
+    <span class="stripe ${bal > 0 ? (bk && bk.tone === 'out' ? 'bad' : bk && bk.tone === 'low' ? 'warn' : 'good') : 'bad'}"></span>
     <span class="grow"><span class="t">${esc(p.name)} ${p.blacklist ? '<span class="pill out">قائمة سوداء</span>' : ''}</span>
       <span class="m">${p.phone ? '<span class="mono">' + esc(p.phone) + '</span>' : ''}
         <span>${p.kind === 'supplier' ? 'مورّد' : 'زبون'}</span>
+        ${age !== null ? '<span class="pill ' + bk.tone + '">منذ ' + age + ' يوماً</span>' : (bal > 0 ? '<span class="pill neutral">بلا تاريخ</span>' : '')}
+        ${ov > 0 ? '<span class="pill out">تجاوز السقف بـ ' + money(ov) + ' $</span>' : (n(p.limit) > 0 ? '<span>السقف ' + money(p.limit) + ' $</span>' : '')}
         <span>يعادل <span class="num">${money0(toTRY(Math.abs(bal)))}</span> TL</span>
         ${p.note ? '<span>' + esc(p.note) + '</span>' : ''}</span></span>
     <span class="amt" style="color:${bal > 0 ? 'var(--good)' : 'var(--bad)'}">${money(Math.abs(bal))} $</span>
@@ -1932,7 +2117,7 @@ function viewReport() {
   return `
   <div class="eyebrow" style="margin-bottom:9px">تقرير ${monthLabel(S.month)}</div>
   ${kpi([
-    { k: 'المبيعات', v: usd(sm.revenue), s: sm.count + ' فاتورة', tone: 'acc', i: 'bag' },
+    { k: 'صافي المبيعات', v: usd(sm.revenue), s: sm.count + ' فاتورة' + (sm.returnsCount ? ' · بعد ' + sm.returnsCount + ' مرتجع' : ''), tone: 'acc', i: 'bag' },
     { k: 'تكلفة البضاعة المباعة', v: usd(sm.cost), i: 'box', tone: 'amb' },
     { k: 'الربح الإجمالي', v: usd(sm.gross), tone: 'pos', i: 'trend' },
     { k: 'صافي الربح بعد المصاريف', v: usd(sm.net), tone: sm.net >= 0 ? 'pos' : 'neg', i: 'check' }
@@ -1940,8 +2125,8 @@ function viewReport() {
   <div style="height:1px"></div>
   ${kpi([
     { k: 'المصاريف', v: usd(sm.expenses), tone: 'neg', i: 'alert' },
-    { k: 'مسحوبات الشركاء', v: usd(sm.withdrawals), i: 'users', tone: 'vio' },
     { k: 'مقبوضات ديون', v: usd(sm.collected), tone: 'pos', i: 'coin' },
+    { k: 'المرتجعات', v: usd(sm.returns), s: sm.returnsCount + ' مرتجع', tone: sm.returns > 0 ? 'neg' : 'pos', i: 'back' },
     { k: 'هامش الربح', v: '<span class="num">' + (sm.revenue ? r2(sm.gross / sm.revenue * 100) : 0) + '%</span>', i: 'trend', tone: 'amb' }
   ])}
 
@@ -2128,6 +2313,8 @@ function viewSettings() {
         <div class="f"><label for="setCash">مصاري بدرج ($)</label><input id="setCash" type="number" step="0.01" value="${n(S.cash)}"></div>
         <div class="f"><label for="setLow">حدّ التنبيه للكمية</label><input id="setLow" type="number" step="1" value="${n(s.lowStock)}"></div>
         <div class="f"><label for="setLock">قفل تلقائي بعد خمول (دقيقة — صفر لإيقافه)</label><input id="setLock" type="number" step="1" min="0" value="${n(s.lockMinutes)}"></div>
+        <div class="f"><label for="setLimit">سقف دين افتراضي للزبون الجديد ($)</label><input id="setLimit" type="number" step="0.01" min="0" value="${n(s.defaultLimit)}"></div>
+        <div class="f"><label for="setMargin">هامش ربح افتراضي (%)</label><input id="setMargin" type="number" step="1" min="0" value="${n(s.defaultMargin)}"></div>
       </div>
       <div style="margin-top:12px"><button class="btn primary" data-act="savesettings" type="button">حفظ</button></div>
     </section>
@@ -2199,6 +2386,84 @@ function viewSettings() {
   </div>`;
 }
 viewSettings.after = () => {};
+
+/* ---------- 14ب. مسح الباركود ---------- */
+let scanStop = null;
+function scanSupported() { return typeof window.BarcodeDetector !== 'undefined'; }
+
+async function openScanner(onCode) {
+  modal('مسح الباركود',
+    '<div id="scanBox" style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;max-width:100%">' +
+      '<video id="scanVid" playsinline muted style="width:100%;height:100%;object-fit:cover"></video>' +
+      '<div style="position:absolute;inset:18% 10%;border:2px solid var(--accent);border-radius:10px;box-shadow:0 0 0 9999px rgba(0,0,0,.35)"></div>' +
+    '</div>' +
+    '<div class="hint" id="scanMsg">وجّه الكاميرا إلى الباركود…</div>' +
+    '<div class="f"><label for="scanManual">أو اكتب الرقم يدوياً</label>' +
+      '<input id="scanManual" type="text" inputmode="numeric" autocomplete="off" placeholder="رقم الباركود أو كود القطعة"></div>',
+    () => { const v = mv('scanManual').trim(); if (v) { closeScanner(); onCode(v); } else closeScanner(); }, 'استخدم الرقم');
+
+  const man = $('#scanManual');
+  if (man) man.onkeydown = e => { if (e.key === 'Enter') { const v = man.value.trim(); if (v) { closeScanner(); onCode(v); } } };
+
+  if (!scanSupported()) {
+    $('#scanBox').hidden = true;
+    $('#scanMsg').innerHTML = 'متصفحك لا يدعم قراءة الباركود بالكاميرا (يعمل على كروم في أندرويد والحاسوب). استخدم قارئ باركود موصولاً بالجهاز، أو اكتب الرقم يدوياً.';
+    if (man) man.focus();
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+  } catch (e) {
+    $('#scanBox').hidden = true;
+    $('#scanMsg').innerHTML = 'تعذّر فتح الكاميرا — قد تكون الصلاحية مرفوضة أو الكاميرا مستخدَمة. اكتب الرقم يدوياً.';
+    if (man) man.focus();
+    return;
+  }
+  const vid = $('#scanVid');
+  vid.srcObject = stream;
+  await vid.play().catch(() => {});
+  const det = new window.BarcodeDetector();
+  let alive = true;
+  scanStop = () => { alive = false; try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} };
+  const tick = async () => {
+    if (!alive) return;
+    try {
+      const found = await det.detect(vid);
+      if (found && found.length && found[0].rawValue) {
+        const code = found[0].rawValue;
+        closeScanner(); onCode(code); return;
+      }
+    } catch (e) { /* إطار غير صالح — تجاهل */ }
+    if (alive) setTimeout(tick, 220);
+  };
+  tick();
+}
+function closeScanner() { if (scanStop) { scanStop(); scanStop = null; } closeModal(); }
+
+/* الصنف الممسوح: يُضاف للفاتورة، أو يُعرض ربطه بقطعة إن كان مجهولاً */
+function onScanned(code) {
+  const prod = findByCode(code);
+  if (prod) {
+    if (!n(prod.price)) { toast('حدّد سعر بيع ' + prod.name + ' أولاً', true); handle('editprod', { id: prod.id }, null); return; }
+    addToCart(prod.id);
+    toast('أُضيف ' + prod.name);
+    return;
+  }
+  if (!can('stock')) { toast('باركود غير معروف: ' + code, true); return; }
+  modal('باركود غير معروف',
+    '<div class="banner warn"><span class="bic">' + svg('scan') + '</span>' +
+    '<span><b>' + esc(code) + '</b>هذا الباركود غير مربوط بأي قطعة. اربطه بقطعة موجودة أو أنشئ قطعة جديدة.</span></div>' +
+    sel('sbProd', 'اربطه بقطعة موجودة', [{ v: '', t: '— اختر —' }].concat(
+      S.products.map(p => ({ v: p.id, t: (p.sku ? p.sku + ' — ' : '') + p.name + (p.brand ? ' ' + p.brand : '') }))), ''),
+    async () => {
+      const pr = P(mv('sbProd'));
+      if (!pr) { toast('اختر قطعة', true); return; }
+      pr.barcode = String(code).trim();
+      await saveProduct(pr);
+      closeModal(); toast('رُبط الباركود بـ ' + pr.name);
+    }, 'اربط');
+}
 
 /* ---------- 15. النوافذ ---------- */
 let modalSubmit = null;
@@ -2274,9 +2539,29 @@ async function saveParty(p)   { await Store.set('parties/' + p.id, p); }
 async function saveSite(s)    { await Store.set('sites/' + s.id, s); }
 async function bumpParty(id, delta) {
   const p = PARTY(id); if (!p) return;
-  p.bal = r2(n(p.bal) + n(delta));
+  const before = n(p.bal);
+  p.bal = r2(before + n(delta));
+  /* عمر الدين يبدأ حين ينقلب الرصيد إلى مستحق لنا، وينتهي حين يُسدَّد */
+  if (before <= 0 && p.bal > 0) p.debtSince = todayStr();
+  if (p.bal <= 0) p.debtSince = '';
   await saveParty(p);
 }
+
+/* عمر الدين بالأيام، و— إن لم يُعرف تاريخ بدايته */
+function debtAge(p) {
+  if (n(p.bal) <= 0 || !p.debtSince) return null;
+  const d = Math.floor((Date.now() - new Date(p.debtSince + 'T00:00:00').getTime()) / 86400000);
+  return d >= 0 ? d : 0;
+}
+const AGE_BUCKETS = [
+  { id: 'fresh', label: 'خلال ٣٠ يوماً', max: 30,       tone: 'ok'   },
+  { id: 'd30',   label: 'متأخر ٣٠–٦٠',   max: 60,       tone: 'low'  },
+  { id: 'd60',   label: 'متأخر ٦٠–٩٠',   max: 90,       tone: 'low'  },
+  { id: 'd90',   label: 'أكثر من ٩٠ يوماً', max: Infinity, tone: 'out' }
+];
+const bucketOf = age => age === null ? null : AGE_BUCKETS.find(b => age < b.max) || AGE_BUCKETS[3];
+/* ما تجاوز السقف: موجب = تجاوز */
+const overLimit = p => n(p.limit) > 0 ? r2(n(p.bal) - n(p.limit)) : 0;
 
 async function download(filename, text, mime) {
   try {
@@ -2315,6 +2600,13 @@ async function commitSale(data) {
   const full = data.method === 'cash' || data.method === 'sham';
   const paid  = full ? total : r2(Math.min(n(data.paid), total));
   if (!full && !data.partyId) { toast('اختر الزبون لتسجيل الدين', true); return; }
+  if (!full && data.partyId) {
+    const pt = PARTY(data.partyId);
+    const after = r2(n(pt.bal) + (total - paid));
+    if (n(pt.limit) > 0 && after > n(pt.limit) &&
+        !confirm(pt.name + ' سيتجاوز سقف دينه:\nالسقف ' + money(pt.limit) + ' $ — بعد هذه الفاتورة ' + money(after) + ' $\nهل تتابع؟')) return;
+    if (pt.blacklist && !confirm(pt.name + ' ضمن القائمة السوداء. هل تتابع البيع بالدين؟')) return;
+  }
 
   const party = PARTY(data.partyId);
   const sale = {
@@ -2365,7 +2657,8 @@ async function reverseSale(id) {
 /* ---------- 18. معالج الأوامر ---------- */
 /* الصلاحية المطلوبة لكل إجراء — يحمي حتى لو وصل أحدهم إلى زر مخفي */
 const ACT_PERM = {
-  addline: 'sell', pickadd: 'sell', freeline: 'sell', checkout: 'sell',
+  addline: 'sell', pickadd: 'sell', freeline: 'sell', checkout: 'sell', scanpos: 'sell', retsale: 'sell',
+  bulkprice: 'stock', scanfield: 'stock', expret: 'reports',
   newprod: 'stock', editprod: 'stock', delprod: 'stock', stocktake: 'stock', newprodquick: 'stock', expstock: 'stock',
   newpurchase: 'buy',
   newparty: 'debts', party: 'debts', payin: 'debts', payout: 'debts', delparty: 'debts', expdebts: 'debts',
@@ -2387,7 +2680,18 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* تصفية */
   case 'poscat':      posCat = ds.v; render(); break;
-  case 'reload': await loadMonth(S.month, true); S.summaries = null; S.backups = null; render(); toast('تم التحديث'); break;
+  case 'reload': await Store.flush(); await loadMonth(S.month, true); S.summaries = null; S.backups = null; render(); toast('تم التحديث'); break;
+  case 'netinfo': {
+    const pend = Store.pending;
+    modal('حالة الاتصال',
+      '<div class="banner ' + (navigator.onLine ? '' : 'warn') + '"><span class="bic">' + svg('cloud') + '</span>' +
+      '<span><b>' + (navigator.onLine ? 'متصل بالإنترنت' : 'غير متصل بالإنترنت') + '</b>' +
+      (pend ? pend + ' حركة محفوظة على هذا الجهاز بانتظار الإرسال إلى الخادم. لا تُغلق البرنامج قبل إرسالها.'
+            : 'كل الحركات مُرسَلة — لا شيء بانتظار الإرسال.') + '</span></div>' +
+      '<p class="hint">تُحفظ كل حركة على الجهاز أولاً ثم تُرسَل. إن انقطع الإنترنت يستمر البيع، وتُرسَل الحركات تلقائياً فور عودته.</p>',
+      async () => { await Store.flush(); paintNet(); closeModal(); toast(Store.pending ? 'ما زال ' + Store.pending + ' بانتظار الإرسال' : 'أُرسلت كل الحركات'); },
+      'إرسال الآن'); break;
+  }
   case 'mkbackup': {
     if (!isOwner()) { toast('النسخ الاحتياطي لصاحب المحل', true); break; }
     toast('جاري إنشاء النسخة…');
@@ -2530,10 +2834,17 @@ async function handle(act, ds, el, fromChange, ev) {
   }
   case 'stockcat':    stockCat = ds.v; render(); break;
   case 'stockfilter': stockFilter = ds.v; render(); break;
-  case 'debtside':    debtSide = ds.v; render(); break;
+  case 'debtside':    debtSide = ds.v; debtAgeFilter = ''; render(); break;
+  case 'debtage':     debtAgeFilter = ds.v; render(); break;
 
   /* السلة */
   case 'addline': addToCart(ds.id); break;
+  case 'scanpos': openScanner(onScanned); break;
+  case 'scanfield': {
+    const t = $('#pBar');
+    openScanner(code => { closeScanner(); if (t) t.value = code; toast('قُرئ ' + code); });
+    break;
+  }
   case 'qty':     S.cart[i].qty = Math.max(0, n(S.cart[i].qty) + n(ds.d)); render(); break;
   case 'qtyset':  S.cart[i].qty = Math.max(0, n(el.value)); render(); break;
   case 'price':   S.cart[i].price = n(el.value); render(); break;
@@ -2585,6 +2896,69 @@ async function handle(act, ds, el, fromChange, ev) {
     chips.forEach(c => c.onclick = () => pick(c.dataset.m));
     pick('cash'); break;
   }
+  case 'retsale': {
+    const sale = (book(S.month).sales || []).find(x => x.id === ds.id);
+    if (!sale) { toast('الفاتورة ليست في شهر معروض', true); break; }
+    const prev = (book(S.month).returns || []).filter(r => r.saleId === sale.id);
+    const doneQty = {};
+    prev.forEach(r => (r.lines || []).forEach(l => { doneQty[l.pid || l.name] = (doneQty[l.pid || l.name] || 0) + n(l.qty); }));
+    const rows = (sale.lines || []).map((l, k) => {
+      const key = l.pid || l.name;
+      const left = n(l.qty) - (doneQty[key] || 0);
+      return { k, l, left };
+    }).filter(r => r.left > 0);
+    if (!rows.length) { toast('كل أصناف هذه الفاتورة أُرجعت', true); break; }
+    modal('مرتجع من فاتورة ' + money(sale.total) + ' $',
+      '<p class="hint" style="margin:0">حدّد الكميات المرتجعة. تعود إلى الجرد، ويُخصم المبلغ من مبيعات الشهر.</p>' +
+      '<div class="tw"><table><thead><tr><th>الصنف</th><th>المتاح</th><th>المرتجع</th><th>السعر</th></tr></thead><tbody>' +
+      rows.map(r => `<tr><td>${esc(r.l.name)}</td><td class="n">${money0(r.left)}</td>
+        <td><input class="priceinp" style="width:64px" type="number" min="0" step="1" data-ret="${r.k}" value="0"></td>
+        <td class="n">${money(r.l.price)}</td></tr>`).join('') + '</tbody></table></div>' +
+      sel('rtDest', 'طريقة الإرجاع', [
+        { v: 'cash', t: 'نقداً من الدرج' },
+        { v: 'credit', t: 'رصيد له عندنا (استبدال لاحقاً)' },
+        { v: 'debt', t: 'خصم من دينه' }
+      ].concat(payTargets().map(x => ({ v: 'site:' + x.id, t: 'إلى ' + x.name }))), 'cash') +
+      '<div class="grid2">' + sellerField('rtSeller') + fld('rtDate', 'التاريخ', 'date', todayStr()) + '</div>' +
+      fld('rtNote', 'سبب الإرجاع', 'text', ''),
+      async () => {
+        const lines = [];
+        $$('#modal [data-ret]').forEach(inp => {
+          const q = n(inp.value);
+          if (q <= 0) return;
+          const row = rows.find(r => String(r.k) === inp.dataset.ret);
+          if (!row || q > row.left) return;
+          lines.push({ pid: row.l.pid || null, sku: row.l.sku || '', name: row.l.name, qty: q, price: n(row.l.price), cost: n(row.l.cost) });
+        });
+        if (!lines.length) { toast('حدّد كمية للإرجاع', true); return; }
+        const total = r2(lines.reduce((a, l) => a + l.price * l.qty, 0));
+        const cost  = r2(lines.reduce((a, l) => a + l.cost  * l.qty, 0));
+        const mode = mv('rtDest');
+        /* إرجاع الكميات وأرصدة الخدمات */
+        for (const l of lines) {
+          if (!l.pid) continue;
+          const pr = P(l.pid); if (!pr) continue;
+          if (isStocked(pr)) pr.qty = r2(n(pr.qty) + l.qty);
+          if (pr.siteId) { const st2 = SITE(pr.siteId); if (st2) { st2.balance = r2(n(st2.balance) + l.cost * l.qty); await saveSite(st2); } }
+          await saveProduct(pr);
+        }
+        /* ردّ المبلغ */
+        if ((mode === 'credit' || mode === 'debt') && !sale.partyId) {
+          toast('هذه الفاتورة بلا زبون — اختر ردّاً نقدياً أو إلى حساب', true); return;
+        }
+        if (mode === 'cash') await receive('', -total);
+        else if (mode.startsWith('site:')) await receive(mode.slice(5), -total);
+        else await bumpParty(sale.partyId, -total);   /* يقلّ دينه، أو يصير له رصيد عندنا */
+        const rec = { id: uid('r'), date: mv('rtDate'), time: nowTime(), saleId: sale.id,
+          seller: mv('rtSeller').trim() || who(), lines, total, cost,
+          mode, partyId: sale.partyId || '', partyName: sale.partyName || '', note: mv('rtNote') };
+        await Store.append('returns', rec.date, rec);
+        await audit('مرتجع', money(total) + ' $ · ' + lines.length + ' صنف · ' + (sale.partyName || 'نقدي'), { ret: rec });
+        await loadMonth(monthOf(rec.date), true); await saveSummary(monthOf(rec.date)); S.summaries = null;
+        closeModal(); render(); toast('سُجّل مرتجع ' + money(total) + ' $');
+      }, 'تسجيل المرتجع');
+    break;
+  }
   case 'delsale': {
     const sale = (book(S.month).sales || []).find(x => x.id === ds.id);
     if (!sale) break;
@@ -2609,6 +2983,9 @@ async function handle(act, ds, el, fromChange, ev) {
       '</div>' +
       '<div class="f" id="pNewGroupWrap" hidden><label for="pNewGroup">اسم النوع الجديد</label><input id="pNewGroup" type="text"></div>' +
       '<div class="grid2">' + fld('pBrand', 'الماركة', 'text', p ? p.brand : '') + fld('pCode', 'رمز المصنّع', 'text', p ? p.code : '') + '</div>' +
+      '<div class="f"><label for="pBar">الباركود</label><div class="row" style="flex-wrap:nowrap">' +
+        '<input id="pBar" class="grow" type="text" inputmode="numeric" autocomplete="off" value="' + esc(p ? (p.barcode || '') : '') + '" placeholder="امسحه أو اكتبه">' +
+        '<button class="btn" data-act="scanfield" type="button" aria-label="مسح">' + svg('scan') + '</button></div></div>' +
       sel('pCat', 'الفئة', CATS.map(c => ({ v: c.id, t: c.label })), p ? p.cat : (groupByName(preGroup) || {}).cat || 'accessory') +
       '<div class="grid3">' + fld('pQty', 'الكمية', 'number', p ? n(p.qty) : 1, 'step="1"') +
       fld('pCost', 'التكلفة $', 'number', p ? n(p.cost) : '', 'step="0.01"') +
@@ -2635,6 +3012,7 @@ async function handle(act, ds, el, fromChange, ev) {
           sku: mv('pSku').trim() || (p && p.sku) || nextSku(g.prefix),
           brand: mv('pBrand').trim(), code: mv('pCode').trim(),
           cat: mv('pCat'), qty: n(mv('pQty')), cost: n(mv('pCost')), price: n(mv('pPrice')),
+          barcode: mv('pBar').trim(),
           imei: mv('pImei').trim(), siteId: mv('pSite'), note: mv('pNote').trim(), active: true };
         await saveProduct(obj);
         if (quick) {
@@ -2651,6 +3029,13 @@ async function handle(act, ds, el, fromChange, ev) {
       if (g && $('#pCat')) $('#pCat').value = g.cat;
       if (g && $('#pSku') && !$('#pSku').value) $('#pSku').placeholder = nextSku(g.prefix);
     };
+    const costIn = $('#pCost'), priceIn = $('#pPrice');
+    if (costIn && priceIn) costIn.oninput = () => {
+      if (priceIn.value) return;                       /* لا يُلمس سعر أدخله المستخدم */
+      const g = groupByName(gsel ? gsel.value : preGroup);
+      const sug = priceFrom(costIn.value, marginOf(g ? g.name : preGroup));
+      priceIn.placeholder = sug ? 'مقترح ' + money(sug) : '';
+    };
     if (gsel && $('#pSku') && !$('#pSku').value) {
       const g0 = groupByName(gsel.value);
       if (g0) $('#pSku').placeholder = nextSku(g0.prefix);
@@ -2664,6 +3049,63 @@ async function handle(act, ds, el, fromChange, ev) {
     await Store.del('products/' + ds.id); closeModal(); toast('حُذف الصنف'); break;
   }
 
+  case 'bulkprice': {
+    if (!can('stock')) { toast('ليس لديك صلاحية تعديل الأسعار', true); break; }
+    const groups = groupsInStock();
+    if (!groups.length) { toast('لا أصناف في الجرد', true); break; }
+    modal('تسعير بالجملة',
+      '<p class="hint" style="margin:0">حدّد هامش الربح لكل نوع، فيُحسب سعر البيع من التكلفة. راجع المعاينة قبل الحفظ.</p>' +
+      '<div class="grid2">' +
+        sel('bpScope', 'على أي أصناف', [
+          { v: 'empty', t: 'الأصناف بلا سعر بيع فقط' },
+          { v: 'all', t: 'كل الأصناف — يستبدل الأسعار الحالية' }], 'empty') +
+        sel('bpRound', 'تقريب السعر', [
+          { v: '0', t: 'بلا تقريب' }, { v: '0.25', t: 'أقرب ٠٫٢٥ $' },
+          { v: '0.5', t: 'أقرب ٠٫٥٠ $' }, { v: '1', t: 'أقرب ١ $' }], String(n(S.settings.roundTo))) +
+      '</div>' +
+      '<div class="f"><label>هامش الربح لكل نوع (%)</label><div class="tw"><table>' +
+        '<thead><tr><th>النوع</th><th>الأصناف</th><th>هامش %</th><th>مثال</th></tr></thead><tbody>' +
+        groups.map(x => {
+          const sample = productsInGroup(x.g.name).find(pp => n(pp.cost) > 0);
+          return `<tr><td>${esc(x.g.name)}</td><td class="n">${x.count}</td>
+            <td><input class="priceinp" style="width:70px" type="number" step="1" data-mg="${esc(x.g.name)}" value="${marginOf(x.g.name)}"></td>
+            <td class="n" data-ex="${esc(x.g.name)}" data-cost="${sample ? n(sample.cost) : 0}">${sample ? money(sample.cost) + ' ← ' + money(priceFrom(sample.cost, marginOf(x.g.name))) : '—'}</td></tr>`;
+        }).join('') + '</tbody></table></div></div>' +
+      '<div class="banner" id="bpPreview"><span class="bic">' + svg('tag') + '</span><span></span></div>',
+      async () => {
+        const step = n(mv('bpRound')), scope = mv('bpScope');
+        const margins = Object.assign({}, S.settings.margins);
+        $$('#modal [data-mg]').forEach(i2 => margins[i2.dataset.mg] = n(i2.value));
+        const targets = S.products.filter(pp => isStocked(pp) && n(pp.cost) > 0 && (scope === 'all' || !n(pp.price)));
+        if (!targets.length) { toast('لا أصناف مطابقة', true); return; }
+        await saveSettings({ margins, roundTo: step });
+        closeModal(); toast('جاري تسعير ' + targets.length + ' صنفاً…');
+        let done = 0;
+        for (const pp of targets) {
+          pp.price = priceFrom(pp.cost, margins[pp.group || ''] === undefined ? n(S.settings.defaultMargin) : n(margins[pp.group || '']), step);
+          await saveProduct(pp);
+          if (++done % 10 === 0) await new Promise(r => setTimeout(r, 120));
+        }
+        await audit('تسعير بالجملة', done + ' صنفاً · تقريب ' + step);
+        render(); toast('سُعّر ' + done + ' صنفاً');
+      }, 'طبّق التسعير');
+    const refresh = () => {
+      const step = n(mv('bpRound')), scope = mv('bpScope');
+      const margins = {};
+      $$('#modal [data-mg]').forEach(i2 => {
+        margins[i2.dataset.mg] = n(i2.value);
+        const ex = $('#modal [data-ex="' + CSS.escape(i2.dataset.mg) + '"]');
+        if (ex) { const c = n(ex.dataset.cost); ex.textContent = c ? money(c) + ' ← ' + money(priceFrom(c, n(i2.value), step)) : '—'; }
+      });
+      const targets = S.products.filter(pp => isStocked(pp) && n(pp.cost) > 0 && (scope === 'all' || !n(pp.price)));
+      const gain = targets.reduce((a, pp) => a + (priceFrom(pp.cost, margins[pp.group || ''] ?? n(S.settings.defaultMargin), step) - n(pp.cost)) * n(pp.qty), 0);
+      $('#bpPreview').querySelector('span:last-child').innerHTML =
+        '<b>' + targets.length + ' صنفاً سيُسعَّر</b>الربح المتوقع من المخزون كله بعد التسعير: <span class="num">' + money(gain) + '</span> $';
+    };
+    $$('#modal [data-mg]').forEach(i2 => { i2.oninput = refresh; });
+    $('#bpRound').onchange = refresh; $('#bpScope').onchange = refresh;
+    refresh(); break;
+  }
   case 'stocktake': {
     const list = S.products.filter(p => isStocked(p) && (!stockCat || p.cat === stockCat));
     modal('وضع الجرد — عدّ الكميات',
@@ -2719,6 +3161,9 @@ async function handle(act, ds, el, fromChange, ev) {
       '<div class="grid2">' + fld('yPhone', 'الهاتف', 'tel', p ? p.phone : '') +
       sel('yKind', 'النوع', [{ v: 'customer', t: 'زبون' }, { v: 'supplier', t: 'مورّد' }], p ? p.kind : 'customer') + '</div>' +
       fld('yBal', 'الرصيد $ — موجب: له علينا دين لنا، سالب: علينا له', 'number', p ? n(p.bal) : 0, 'step="0.01"') +
+      '<div class="grid2">' +
+        fld('yLimit', 'سقف الدين $ (صفر = بلا سقف)', 'number', p ? n(p.limit) : n(S.settings.defaultLimit), 'step="0.01"') +
+        fld('ySince', 'تاريخ بداية الدين', 'date', p ? (p.debtSince || '') : todayStr()) + '</div>' +
       fld('yNote', 'ملاحظة', 'text', p ? p.note : '') +
       '<label class="row" style="gap:7px;font-size:13.5px"><input id="yBlack" type="checkbox" style="width:auto"' + (p && p.blacklist ? ' checked' : '') + '> ضمن القائمة السوداء</label>' +
       (p ? `<div class="row"><button class="btn" data-act="payin" data-id="${p.id}" type="button">تسجيل قبض</button>
@@ -2727,7 +3172,8 @@ async function handle(act, ds, el, fromChange, ev) {
       async () => {
         if (!mv('yName').trim()) { toast('أدخل الاسم', true); return; }
         await saveParty({ id: p ? p.id : uid('y'), name: mv('yName').trim(), phone: mv('yPhone').trim(), kind: mv('yKind'),
-          bal: n(mv('yBal')), note: mv('yNote').trim(), blacklist: mc('yBlack') });
+          bal: n(mv('yBal')), limit: n(mv('yLimit')), debtSince: n(mv('yBal')) > 0 ? mv('ySince') : '',
+          note: mv('yNote').trim(), blacklist: mc('yBlack') });
         closeModal(); toast('تم الحفظ');
       }); break;
   }
@@ -2854,6 +3300,13 @@ async function handle(act, ds, el, fromChange, ev) {
           await saveSettings({ customSpend: (S.settings.customSpend || []).concat([nm]) });
         closeModal(); render(); toast('أُضيف البند');
       }); break;
+  case 'expret': {
+    const rows = (book(S.month).returns || []);
+    download('المرتجعات-' + S.month + '.csv', csv([['التاريخ','الوقت','البائع','الأصناف','المبلغ $','التكلفة $','طريقة الإرجاع','الزبون','السبب']]
+      .concat(rows.map(x => [x.date, x.time || '', x.seller || '', (x.lines || []).map(l => l.name + '×' + l.qty).join(' | '),
+        n(x.total), n(x.cost), RET_MODE[x.mode] || x.mode, x.partyName || '', x.note || '']))));
+    break;
+  }
   case 'expspend': {
     const rows = spendRows(book(S.month));
     download('الاستهلاك-' + S.month + '.csv', csv([['التاريخ','الوقت','البند','المبلغ $','من سجّله','خرج من','الزبون','ملاحظة']]
@@ -2918,7 +3371,8 @@ async function handle(act, ds, el, fromChange, ev) {
   /* الإعدادات */
   case 'savesettings':
     await saveSettings({ shopName: mv('setName').trim() || 'دفتر المحل', rateTRY: n(mv('setRate')),
-      capital: n(mv('setCap')), lowStock: n(mv('setLow')), lockMinutes: Math.max(0, n(mv('setLock'))) });
+      capital: n(mv('setCap')), lowStock: n(mv('setLow')), lockMinutes: Math.max(0, n(mv('setLock'))),
+      defaultLimit: Math.max(0, n(mv('setLimit'))), defaultMargin: Math.max(0, n(mv('setMargin'))) });
     if (n(mv('setCash')) !== n(S.cash)) await setCash(n(mv('setCash')));
     await audit('تعديل الإعدادات', 'رأس المال ' + money(mv('setCap')) + ' $ · سعر الصرف ' + mv('setRate'));
     toast('حُفظت الإعدادات'); break;
@@ -2981,7 +3435,7 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* النوافذ */
   case 'modalok': if (modalSubmit) await modalSubmit(); break;
-  case 'closemodal': closeModal(); break;
+  case 'closemodal': closeScanner(); break;
   case 'scrim': if (ev && ev.target === el) closeModal(); break;
   }
 }
