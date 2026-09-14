@@ -501,7 +501,11 @@ const Store = (() => {
     fire(path); fire(collOf(path));
     if (!db) return true;
     try { await db.doc(path).set(obj); return true; }
-    catch (e) { toast('تعذّر الحفظ على الخادم — حُفظ محلياً فقط', true); return false; }
+    catch (e) {
+      const denied = e && (e.code === 'invalid_argument' || e.code === 'revoked');
+      toast(denied ? 'صلاحيتك لا تسمح بتعديل هذا — راجع صاحب المحل' : 'تعذّر الحفظ على الخادم — حُفظ محلياً فقط', true);
+      return false;
+    }
   }
 
   async function del(path) {
@@ -628,6 +632,7 @@ const DEFAULT_SETTINGS = {
   capital: 0,
   cash: 0,
   lowStock: 2,
+  lockMinutes: 0,
   partners: [],
   otherAssets: [],
   customGroups: [],
@@ -817,6 +822,7 @@ const S = {
   ledger: {},          // "YYYY-MM" -> {sales,purchases,expenses,payments}
   cart: [],
   cartParty: '',
+  cash: 0,
   seller: '',
   ready: false
 };
@@ -828,6 +834,18 @@ const prefSet = (k, v) => { try { localStorage.setItem(PREF + k, v); localStorag
 try { S.meId = prefGet('user'); } catch (e) {}
 function signIn(id) { S.meId = id; prefSet('user', id); S.seller = (me() || {}).name || ''; paintBrand(); renderNav(); render(); }
 function signOut() { S.meId = ''; prefSet('user', ''); S.seller = ''; paintBrand(); renderNav(); render(); }
+
+/* قفل تلقائي: يعيد شاشة الدخول بعد فترة خمول على الجهاز */
+let lastAct = Date.now();
+['click', 'keydown', 'touchstart', 'focus'].forEach(ev =>
+  document.addEventListener(ev, () => { lastAct = Date.now(); }, true));
+setInterval(() => {
+  const mins = n(S.settings.lockMinutes);
+  if (!mins || !S.users.length || !me()) return;
+  if (Date.now() - lastAct < mins * 60000) return;
+  signOut();
+  toast('قُفل البرنامج بعد ' + mins + ' دقيقة خمول');
+}, 20000);
 /* البائع المسجَّل على أي حركة جديدة — صاحب الحساب الداخل على هذا الجهاز */
 const who = () => (me() || {}).name || S.seller || '';
 const staffList = () => S.users.filter(u => u.active !== false).map(u => u.name);
@@ -839,15 +857,16 @@ const partnerShare = p => (n(p.share) || 0) / 100;
 
 /* ---------- 4. دفتر الشهر ---------- */
 const BOOKS = ['sales', 'purchases', 'expenses', 'payments'];
+const ALL_BOOKS = BOOKS.concat(['audit']);
 
 async function loadMonth(m, force) {
   if (S.ledger[m] && !force) return S.ledger[m];
   const book = {};
-  for (const b of BOOKS) book[b] = await Store.readMonth(b, m);
+  for (const b of ALL_BOOKS) book[b] = await Store.readMonth(b, m);
   S.ledger[m] = book;
   return book;
 }
-const book = m => S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [] };
+const book = m => S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], audit: [] };
 
 /* ملخّص الشهر — يُحفظ ليبقى تقرير السنة سريعاً */
 function summarize(b) {
@@ -888,6 +907,11 @@ async function boot() {
     if (!Array.isArray(S.settings.customSpend)) S.settings.customSpend = [];
     paintBrand(); render();
   });
+  Store.watchDoc('state/cash', d => {
+    if (d) { S.cash = n(d.amount); S.cashLoaded = true; }
+    else if (!S.cashLoaded) { S.cashLoaded = true; setTimeout(migrateCash, 2500); }
+    render();
+  });
   Store.watchDoc('meta/users', d => {
     S.users = (d && Array.isArray(d.list)) ? d.list : [];
     S.seller = (me() || {}).name || '';
@@ -901,19 +925,28 @@ async function boot() {
   S.ready = true;
   render();
   watchCurrentMonth();
+  setTimeout(() => { autoBackup().catch(e => console.warn('backup', e)); }, 6000);
 }
 const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+/* النقد كان مخزّناً داخل الإعدادات قبل فصل قواعد الوصول */
+async function migrateCash() {
+  if (await Store.get('state/cash')) return;          /* أنشأه جهاز آخر */
+  if (!(await Store.lease('meta/cashmove', CLIENT_ID, 60000))) return;
+  const old = n((S.settings || {}).cash);
+  S.cash = old;
+  await Store.set('state/cash', { amount: old, at: new Date().toISOString(), by: 'ترحيل' });
+}
 
 let unwatchBooks = [];
 function watchCurrentMonth() {
   unwatchBooks.forEach(f => { try { f(); } catch (e) {} });
   const m = S.month;
-  unwatchBooks = BOOKS.map(b => Store.watch(b, docs => {
+  unwatchBooks = ALL_BOOKS.map(b => Store.watch(b, docs => {
     if (S.month !== m) return;
     const items = docs.filter(d => d.month === m)
                       .sort((x, y) => String(x.id).localeCompare(String(y.id)))
                       .flatMap(d => d.items || []);
-    S.ledger[m] = S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [] };
+    S.ledger[m] = S.ledger[m] || { sales: [], purchases: [], expenses: [], payments: [], audit: [] };
     S.ledger[m][b] = items;
     if (S.ready) render();
   }, ['month', '==', m]));
@@ -984,6 +1017,7 @@ const NAV = [
   { id: 'spend',    label: 'الاستهلاك والمصاريف',  short: 'الاستهلاك',icon: 'spend', perm: 'spend' },
   { id: 'cash',     label: 'الصناديق والمحافظ',    short: 'الصندوق',  icon: 'cash',  perm: 'cash'  },
   { id: 'report',   label: 'الأرباح والتقارير',    short: 'التقارير', icon: 'rep',   perm: 'reports' },
+  { id: 'guard',    label: 'الحماية والنسخ',        short: 'الحماية',  icon: 'shield', perm: 'settings' },
   { id: 'settings', label: 'الإعدادات',            short: 'إعدادات',  icon: 'set',   perm: 'settings' }
 ];
 const navOf = v => NAV.find(x => x.id === v) || NAV[0];
@@ -1051,7 +1085,8 @@ function headActions(view) {
 function render() {
   if (renderGate()) return;
   const el = $('#view');
-  const fn = ({ pos: viewPOS, stock: viewStock, debts: viewDebts, spend: viewSpend, cash: viewCash, report: viewReport, settings: viewSettings })[S.view] || viewPOS;
+  const fn = ({ pos: viewPOS, stock: viewStock, debts: viewDebts, spend: viewSpend, cash: viewCash,
+                report: viewReport, guard: viewGuard, settings: viewSettings })[S.view] || viewPOS;
   const y = window.scrollY;
   if (!can(navOf(S.view).perm)) { const first = myNav()[0]; if (first && first.id !== S.view) { S.view = first.id; renderNav(); } }
   const meta = navOf(S.view);
@@ -1588,6 +1623,185 @@ function viewSpend() {
   </div>`;
 }
 
+/* ---------- 10ج. الحماية والنسخ الاحتياطي ---------- */
+S.backups = null;
+async function ensureBackups() {
+  if (S.backups) return;
+  S.backups = [];
+  const rows = await Store.list('backups');
+  S.backups = rows.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  if (S.view === 'guard') render();
+}
+
+/* لقطة البيانات الحيّة: الضبط والأصناف والحسابات ودفاتر آخر شهرين */
+async function snapshot() {
+  const months = [monthOf(), prevMonth(monthOf())];
+  const ledger = {};
+  for (const m of months) ledger[m] = await loadMonth(m, true);
+  return {
+    v: 2, at: new Date().toISOString(), by: who() || '—',
+    settings: S.settings, users: S.users, cash: S.cash,
+    products: S.products, parties: S.parties, sites: S.sites, ledger
+  };
+}
+function prevMonth(m) {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 2, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+async function makeBackup(kind) {
+  const data = await snapshot();
+  const json = JSON.stringify(data);
+  if (json.length > 230000) { toast('البيانات أكبر من أن تُحفظ داخل البرنامج — نزّل نسخة على جهازك', true); return null; }
+  const id = 'b' + data.at.replace(/[^0-9]/g, '').slice(0, 14);
+  await Store.set('backups/' + id, { id, at: data.at, by: data.by, kind, size: json.length, data });
+  /* الإبقاء على آخر ثماني نسخ */
+  const rows = (await Store.list('backups')).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  for (const old of rows.slice(8)) await Store.del('backups/' + old.id);
+  S.backups = null; await ensureBackups();
+  return id;
+}
+
+/* نسخة تلقائية واحدة كل يوم، من جهاز صاحب المحل */
+let autoTried = false;
+async function autoBackup() {
+  if (autoTried || !isOwner() || !S.products.length) return;
+  autoTried = true;
+  await ensureBackups();
+  const last = (S.backups || []).find(b => b.kind === 'auto');
+  if (last && String(last.at).slice(0, 10) === todayStr()) return;
+  if (!(await Store.lease('backups/lock', CLIENT_ID, 120000))) return;
+  await makeBackup('auto');
+}
+
+async function restoreBackup(id) {
+  const b = await Store.get('backups/' + id);
+  if (!b || !b.data) { toast('تعذّر قراءة النسخة', true); return; }
+  const d = b.data;
+  for (const x of (d.products || [])) await Store.set('products/' + x.id, x);
+  for (const x of (d.parties  || [])) await Store.set('parties/'  + x.id, x);
+  for (const x of (d.sites    || [])) await Store.set('sites/'    + x.id, x);
+  if (d.settings) await Store.set('meta/settings', d.settings);
+  if (d.users)    await Store.set('meta/users', { list: d.users });
+  await Store.set('state/cash', { amount: n(d.cash), at: new Date().toISOString(), by: 'استعادة' });
+  for (const m in (d.ledger || {})) {
+    for (const coll of BOOKS) await Store.set(coll + '/' + m, { month: m, items: (d.ledger[m][coll] || []) });
+  }
+  await audit('استعادة نسخة احتياطية', 'نسخة ' + String(b.at).slice(0, 16).replace('T', ' '), { id });
+  S.ledger = {}; S.summaries = null; await loadMonth(S.month, true);
+  toast('استُعيدت البيانات من النسخة');
+  render();
+}
+
+/* فحص سلامة البيانات */
+function healthChecks() {
+  const out = [];
+  const add = (sev, title, detail, n2) => out.push({ sev, title, detail, n: n2 });
+  const neg = S.products.filter(p => isStocked(p) && n(p.qty) < 0);
+  if (neg.length) add('bad', 'أصناف بكمية سالبة', neg.slice(0, 6).map(p => p.name).join('، '), neg.length);
+  const noPrice = S.products.filter(p => !n(p.price));
+  if (noPrice.length) add('warn', 'أصناف بلا سعر بيع', 'الربح لا يُحسب لها', noPrice.length);
+  const under = S.products.filter(p => n(p.price) > 0 && n(p.price) < n(p.cost));
+  if (under.length) add('warn', 'أصناف سعر بيعها أقل من تكلفتها', under.slice(0, 6).map(p => p.name).join('، '), under.length);
+  const negSite = S.sites.filter(x => n(x.balance) < 0);
+  if (negSite.length) add('bad', 'حسابات برصيد سالب', negSite.map(x => x.name).join('، '), negSite.length);
+  const b = book(S.month);
+  const noSeller = (b.sales || []).filter(x => !x.seller);
+  if (noSeller.length) add('warn', 'فواتير بلا اسم بائع', 'في ' + monthLabel(S.month), noSeller.length);
+  const lossy = (b.sales || []).filter(x => n(x.profit) < 0);
+  if (lossy.length) add('warn', 'فواتير بربح سالب', 'بيع بأقل من التكلفة', lossy.length);
+  const zero = (b.expenses || []).filter(x => !n(x.amount));
+  if (zero.length) add('warn', 'قيود بمبلغ صفر', 'في ' + monthLabel(S.month), zero.length);
+  const wrongSign = S.parties.filter(x => x.kind === 'supplier' && n(x.bal) > 0);
+  if (wrongSign.length) add('warn', 'موردون برصيد لنا عليهم', wrongSign.map(x => x.name).join('، '), wrongSign.length);
+  if (!S.users.length) add('warn', 'لا حسابات مستخدمين', 'البرنامج مفتوح لكل من يفتح الرابط', 0);
+  if (S.users.filter(u => u.active !== false && !u.pinHash).length)
+    add('warn', 'حسابات بلا رمز دخول', 'يفتحها أي شخص على الجهاز', S.users.filter(u => u.active !== false && !u.pinHash).length);
+  return out;
+}
+
+function viewGuard() {
+  ensureBackups();
+  const checks = healthChecks();
+  const bad = checks.filter(c => c.sev === 'bad').length;
+  const aud = (book(S.month).audit || []);
+  const last = (S.backups || [])[0];
+  return `
+  ${kpi([
+    { k: 'آخر نسخة احتياطية', v: last ? '<span class="num" style="font-size:.8em">' + String(last.at).slice(0, 10) + '</span>' : '—',
+      s: last ? String(last.at).slice(11, 16) + ' · ' + (last.kind === 'auto' ? 'تلقائية' : 'يدوية') : 'لم تُنشأ بعد',
+      tone: last ? 'pos' : 'neg', i: 'shield' },
+    { k: 'النسخ المحفوظة', v: '<span class="num">' + (S.backups || []).length + '</span>', s: 'آخر ٨ نسخ', i: 'clip', tone: 'vio' },
+    { k: 'ملاحظات الفحص', v: '<span class="num">' + checks.length + '</span>', s: bad ? bad + ' حرجة' : 'لا شيء حرج',
+      tone: bad ? 'neg' : (checks.length ? 'amb' : 'pos'), i: 'check' },
+    { k: 'عمليات مسجّلة', v: '<span class="num">' + aud.length + '</span>', s: monthLabel(S.month), i: 'clock' }
+  ])}
+
+  <div class="stack" style="margin-top:16px">
+    <section class="card">
+      <div class="pad">
+        <div class="sec-h"><h2>النسخ الاحتياطي</h2>
+          <div class="row"><button class="btn" data-act="dlbackup" type="button">تنزيل نسخة</button>
+          <button class="btn primary" data-act="mkbackup" type="button">أنشئ نسخة الآن</button></div></div>
+        <p class="hint" style="margin:0 0 4px">تُنشأ نسخة تلقائية كل يوم من جهاز صاحب المحل، وتُحفظ آخر ثماني نسخ داخل البرنامج.
+        النسخة تشمل الضبط والحسابات والأصناف والأرصدة ودفاتر آخر شهرين. نزّل نسخة على جهازك آخر كل شهر أيضاً.</p>
+      </div>
+      <div class="list">
+        ${(S.backups || []).length ? S.backups.map(x => `
+          <div class="item">
+            <span class="rowic"${x.kind === 'auto' ? '' : ' style="background:var(--violet-soft);color:var(--violet)"'}>${svg(x.kind === 'auto' ? 'clock' : 'shield')}</span>
+            <span class="grow"><span class="t"><span class="mono">${esc(String(x.at).slice(0, 10))}</span> · ${esc(String(x.at).slice(11, 16))}</span>
+              <span class="m"><span>${x.kind === 'auto' ? 'تلقائية' : 'يدوية'}</span><span>${esc(x.by || '—')}</span>
+                <span>${Math.round(n(x.size) / 1024)} ك.ب</span></span></span>
+            <button class="btn sm" data-act="restore" data-id="${esc(x.id)}" type="button">استعادة</button>
+          </div>`).join('') : emptyBox('لا نسخ بعد', 'اضغط «أنشئ نسخة الآن» لحفظ أول نسخة.', 'shield')}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pad" style="padding-bottom:6px"><div class="sec-h" style="margin-bottom:0"><h2>فحص سلامة البيانات</h2>
+        <button class="btn sm" data-act="reload" type="button">إعادة الفحص</button></div></div>
+      <div class="list">
+        ${checks.length ? checks.map(c => `
+          <div class="item"><span class="stripe ${c.sev}"></span>
+            <span class="grow"><span class="t">${esc(c.title)}</span><span class="m">${esc(c.detail)}</span></span>
+            ${c.n ? '<span class="pill ' + (c.sev === 'bad' ? 'out' : 'low') + '">' + c.n + '</span>' : ''}
+          </div>`).join('')
+        : emptyBox('كل شيء سليم', 'لا تناقضات في الكميات ولا الأرصدة ولا القيود.', 'check')}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pad" style="padding-bottom:6px"><div class="sec-h" style="margin-bottom:0"><h2>سجل العمليات</h2>
+        <span class="eyebrow">${monthLabel(S.month)}</span></div>
+        <p class="hint" style="margin:6px 0 0">يُسجَّل هنا كل حذف أو شطب دين أو تعديل إعدادات أو صلاحيات أو تسوية صندوق.</p></div>
+      <div class="list">
+        ${aud.length ? aud.slice().reverse().slice(0, 60).map(x => `
+          <div class="item"><span class="rowic" style="background:var(--warn-soft);color:var(--warn)">${svg('clip')}</span>
+            <span class="grow"><span class="t">${esc(x.action)}</span>
+              <span class="m"><span class="mono">${esc(x.date)} · ${esc(x.time || '')}</span>
+                <span class="pill acc">${esc(x.by || '—')}</span>
+                ${x.detail ? '<span>' + esc(x.detail) + '</span>' : ''}</span></span>
+            ${x.payload && x.payload.sale ? '<button class="btn sm" data-act="reenter" data-id="' + esc(x.id) + '" type="button">إعادة إدخال</button>' : ''}
+          </div>`).join('') : emptyBox('لا عمليات مسجّلة', 'سجل العمليات يبدأ بأول حذف أو تعديل حسّاس.', 'clip')}
+      </div>
+    </section>
+
+    <section class="card pad">
+      <div class="sec-h"><h2>من يصل إلى البيانات</h2></div>
+      <div class="banner"><span class="bic">${svg('shield')}</span>
+        <span><b>البيانات محفوظة على خادم claude.ai ضمن حسابك</b>لا يفتحها إلا من شاركته الرابط صراحةً، ولا تظهر لأحد غيرهم.
+        عند المشاركة اختر «العرض فقط» للعامل: عندها لا يستطيع تعديل الإعدادات أو رأس المال أو حصص الشركاء أو الحسابات والصلاحيات — الخادم يمنعه، لا البرنامج.
+        و«التعديل» للشريك فقط.</span></div>
+      <div class="banner warn" style="margin-top:10px"><span class="bic">${svg('shieldx')}</span>
+        <span><b>ما لا يحميه هذا النظام</b>من تعطيه الرابط يرى البيانات اليومية (المبيعات والجرد والديون).
+        صلاحيات العمال داخل البرنامج تنظّم العمل وتمنع الخطأ، لكنها لا تصدّ من يعرف أدوات المتصفح.
+        لفصل الأرباح والتكاليف عن العامل فصلاً تاماً يلزم خادم مستقل بتسجيل دخول حقيقي.</span></div>
+    </section>
+  </div>`;
+}
+
 /* ---------- 11. الصندوق والأرصدة ---------- */
 function viewCash() {
   const b = book(S.month);
@@ -1598,7 +1812,7 @@ function viewCash() {
 
   return `
   ${kpi([
-    { k: 'مصاري بدرج', v: usd(S.settings.cash), s: tryv(toTRY(S.settings.cash)), tone: 'acc', i: 'cash' },
+    { k: 'مصاري بدرج', v: usd(S.cash), s: tryv(toTRY(S.cash)), tone: 'acc', i: 'cash' },
     { k: 'أرصدة المواقع والبنك', v: usd(sitesTotal), i: 'wallet', tone: 'vio' },
     { k: 'مصاريف ' + monthLabel(S.month), v: usd(spend), tone: 'neg', i: 'alert' },
     { k: 'مسحوبات الشركاء', v: usd(draws), tone: 'neg', i: 'users' }
@@ -1670,7 +1884,7 @@ function balanceSheet() {
   const other = (S.settings.otherAssets || []).reduce((s, x) => s + n(x.value), 0);
   const recv = S.parties.filter(p => n(p.bal) > 0).reduce((s, p) => s + n(p.bal), 0);
   const pay  = S.parties.filter(p => n(p.bal) < 0).reduce((s, p) => s - n(p.bal), 0);
-  const cash = n(S.settings.cash);
+  const cash = n(S.cash);
   const drawn = (S.settings.partners || []).reduce((s, p) => s + n(p.drawn), 0);
   const assets = st.cost + sites + other + recv + cash + drawn;
   const capital = n(S.settings.capital);
@@ -1911,8 +2125,9 @@ function viewSettings() {
         <div class="f" style="grid-column:1/-1"><label for="setName">اسم المحل</label><input id="setName" value="${esc(s.shopName)}"></div>
         <div class="f"><label for="setRate">سعر صرف الدولار (ليرة تركية)</label><input id="setRate" type="number" step="0.01" value="${n(s.rateTRY)}"></div>
         <div class="f"><label for="setCap">رأس المال ($)</label><input id="setCap" type="number" step="0.01" value="${n(s.capital)}"></div>
-        <div class="f"><label for="setCash">مصاري بدرج ($)</label><input id="setCash" type="number" step="0.01" value="${n(s.cash)}"></div>
+        <div class="f"><label for="setCash">مصاري بدرج ($)</label><input id="setCash" type="number" step="0.01" value="${n(S.cash)}"></div>
         <div class="f"><label for="setLow">حدّ التنبيه للكمية</label><input id="setLow" type="number" step="1" value="${n(s.lowStock)}"></div>
+        <div class="f"><label for="setLock">قفل تلقائي بعد خمول (دقيقة — صفر لإيقافه)</label><input id="setLock" type="number" step="1" min="0" value="${n(s.lockMinutes)}"></div>
       </div>
       <div style="margin-top:12px"><button class="btn primary" data-act="savesettings" type="button">حفظ</button></div>
     </section>
@@ -2031,7 +2246,10 @@ async function saveSettings(patch) {
   await Store.set('meta/settings', S.settings);
   paintBrand();
 }
-const addCash = d => saveSettings({ cash: r2(n(S.settings.cash) + n(d)) });
+/* رصيد الدرج حالة تشغيلية مستقلة عن الإعدادات، ليكتبها البائع دون أن
+   يملك تعديل رأس المال أو حصص الشركاء (قواعد الوصول تمنعه من meta). */
+const addCash = d => setCash(r2(n(S.cash) + n(d)));
+async function setCash(v) { S.cash = r2(v); await Store.set('state/cash', { amount: S.cash, at: new Date().toISOString(), by: who() }); }
 /* يدخل المبلغ (أو يخرج بقيمة سالبة) إلى الدرج أو إلى حساب مثل شام كاش */
 async function receive(destId, amount) {
   if (!n(amount)) return;
@@ -2040,6 +2258,15 @@ async function receive(destId, amount) {
   if (!st) return addCash(amount);
   st.balance = r2(n(st.balance) + n(amount));
   await saveSite(st);
+}
+
+/* سجل العمليات: من فعل ماذا ومتى — للحركات الحسّاسة فقط */
+async function audit(action, detail, payload) {
+  try {
+    const rec = { id: uid('a'), date: todayStr(), time: nowTime(), ts: new Date().toISOString(),
+      by: who() || '—', action, detail: detail || '', payload: payload || null };
+    await Store.append('audit', rec.date, rec);
+  } catch (e) { console.warn('audit', e); }
 }
 
 async function saveProduct(p) { await Store.set('products/' + p.id, p); }
@@ -2160,7 +2387,39 @@ async function handle(act, ds, el, fromChange, ev) {
 
   /* تصفية */
   case 'poscat':      posCat = ds.v; render(); break;
-  case 'reload': await loadMonth(S.month, true); S.summaries = null; render(); toast('تم التحديث'); break;
+  case 'reload': await loadMonth(S.month, true); S.summaries = null; S.backups = null; render(); toast('تم التحديث'); break;
+  case 'mkbackup': {
+    if (!isOwner()) { toast('النسخ الاحتياطي لصاحب المحل', true); break; }
+    toast('جاري إنشاء النسخة…');
+    const id = await makeBackup('manual');
+    if (id) { await audit('إنشاء نسخة احتياطية', 'يدوية'); render(); toast('حُفظت النسخة'); }
+    break;
+  }
+  case 'dlbackup': {
+    if (!isOwner()) { toast('التنزيل لصاحب المحل', true); break; }
+    const snap = await snapshot();
+    snap.ledgerAll = {};
+    for (const m of Object.keys(S.ledger)) snap.ledgerAll[m] = S.ledger[m];
+    download('نسخة-دفتر-المحل-' + todayStr() + '.json', JSON.stringify(snap, null, 1), 'application/json');
+    break;
+  }
+  case 'restore': {
+    if (!isOwner()) { toast('الاستعادة لصاحب المحل', true); break; }
+    const bk = (S.backups || []).find(x => x.id === ds.id);
+    if (!bk) break;
+    if (!confirm('استعادة بيانات ' + String(bk.at).slice(0, 16).replace('T', ' ') + '؟\nكل ما سُجّل بعد هذه النسخة في الضبط والأصناف والحسابات ودفاتر آخر شهرين سيُستبدل.')) break;
+    toast('جاري الاستعادة…');
+    await restoreBackup(ds.id);
+    break;
+  }
+  case 'reenter': {
+    const rec = (book(S.month).audit || []).find(x => x.id === ds.id);
+    if (!rec || !rec.payload || !rec.payload.sale) break;
+    if (!can('sell')) { toast('ليس لديك صلاحية البيع', true); break; }
+    S.cart = (rec.payload.sale.lines || []).map(l => ({ pid: l.pid, sku: l.sku, name: l.name, qty: n(l.qty), price: n(l.price), cost: n(l.cost) }));
+    go('pos'); toast('أُعيدت الأصناف إلى السلة — راجعها ثم أتمّ البيع');
+    break;
+  }
   case 'pickseller': {
     const u = me();
     modal('الحساب على هذا الجهاز',
@@ -2213,6 +2472,8 @@ async function handle(act, ds, el, fromChange, ev) {
         const k = list.findIndex(x => x.id === obj.id);
         if (k >= 0) list[k] = obj; else list.push(obj);
         await saveUsers(list);
+        await audit(u ? 'تعديل حساب مستخدم' : 'إنشاء حساب مستخدم',
+          obj.name + ' · ' + (obj.role === 'owner' ? 'صاحب محل' : obj.perms.length + ' صلاحية') + (pin ? ' · غُيّر الرمز' : ''));
         if (!S.meId) signIn(obj.id);
         closeModal(); renderNav(); render(); toast('تم الحفظ');
       });
@@ -2229,6 +2490,7 @@ async function handle(act, ds, el, fromChange, ev) {
     const list = S.users.filter(x => x.id !== ds.id);
     if (!list.some(x => x.role === 'owner' && x.active !== false)) { toast('يجب أن يبقى صاحب محل واحد على الأقل', true); break; }
     if (!confirm('حذف الحساب؟')) break;
+    await audit('حذف حساب مستخدم', (S.users.find(x => x.id === ds.id) || {}).name || ds.id);
     await saveUsers(list);
     if (S.meId === ds.id) signOut();
     closeModal(); renderNav(); render(); break;
@@ -2323,7 +2585,14 @@ async function handle(act, ds, el, fromChange, ev) {
     chips.forEach(c => c.onclick = () => pick(c.dataset.m));
     pick('cash'); break;
   }
-  case 'delsale': if (confirm('حذف هذه الفاتورة وإرجاع الكميات إلى الجرد؟')) await reverseSale(ds.id); break;
+  case 'delsale': {
+    const sale = (book(S.month).sales || []).find(x => x.id === ds.id);
+    if (!sale) break;
+    if (!confirm('حذف فاتورة ' + money(sale.total) + ' $ وإرجاع الكميات إلى الجرد؟')) break;
+    await audit('حذف فاتورة', money(sale.total) + ' $ · ' + (sale.seller || '—') + ' · ' + sale.date, { sale });
+    await reverseSale(ds.id);
+    break;
+  }
 
   /* الأصناف */
   case 'newprod': case 'editprod': case 'newprodquick': {
@@ -2388,7 +2657,12 @@ async function handle(act, ds, el, fromChange, ev) {
     }
     break;
   }
-  case 'delprod': if (confirm('حذف الصنف نهائياً؟')) { await Store.del('products/' + ds.id); closeModal(); toast('حُذف الصنف'); } break;
+  case 'delprod': {
+    const pr = P(ds.id);
+    if (!confirm('حذف الصنف نهائياً؟')) break;
+    await audit('حذف صنف', (pr ? pr.name + ' · ' + (pr.sku || '') : ds.id), { product: pr });
+    await Store.del('products/' + ds.id); closeModal(); toast('حُذف الصنف'); break;
+  }
 
   case 'stocktake': {
     const list = S.products.filter(p => isStocked(p) && (!stockCat || p.cat === stockCat));
@@ -2457,7 +2731,12 @@ async function handle(act, ds, el, fromChange, ev) {
         closeModal(); toast('تم الحفظ');
       }); break;
   }
-  case 'delparty': if (confirm('حذف الحساب؟')) { await Store.del('parties/' + ds.id); closeModal(); } break;
+  case 'delparty': {
+    const pt = PARTY(ds.id);
+    if (!confirm('حذف الحساب؟')) break;
+    await audit('حذف حساب زبون/مورّد', (pt ? pt.name + ' · رصيد ' + money(pt.bal) + ' $' : ds.id), { party: pt });
+    await Store.del('parties/' + ds.id); closeModal(); break;
+  }
   case 'payin': case 'payout': {
     const p = PARTY(ds.id); const dir = act === 'payin' ? 'in' : 'out';
     modal(dir === 'in' ? 'قبض من ' + p.name : 'دفع إلى ' + p.name,
@@ -2497,7 +2776,12 @@ async function handle(act, ds, el, fromChange, ev) {
         closeModal(); toast('تم الحفظ');
       }); break;
   }
-  case 'delsite': if (confirm('حذف الحساب؟')) { await Store.del('sites/' + ds.id); closeModal(); } break;
+  case 'delsite': {
+    const st2 = SITE(ds.id);
+    if (!confirm('حذف الحساب؟')) break;
+    await audit('حذف حساب رصيد', (st2 ? st2.name + ' · ' + money(st2.balance) + ' $' : ds.id), { site: st2 });
+    await Store.del('sites/' + ds.id); closeModal(); break;
+  }
   case 'topup': {
     const s = SITE(ds.id);
     modal('شحن رصيد ' + s.name,
@@ -2554,6 +2838,7 @@ async function handle(act, ds, el, fromChange, ev) {
           noCash: true, amount: a, note: mv('dNote') };
         await Store.append('expenses', rec.date, rec);
         await loadMonth(monthOf(rec.date), true); await saveSummary(monthOf(rec.date)); S.summaries = null;
+        await audit('شطب دين ميت', party.name + ' · ' + money(a) + ' $', { entry: rec });
         closeModal(); render(); toast('شُطب ' + money(a) + ' $ من دين ' + party.name);
       }, 'شطب');
     const dp = $('#dParty');
@@ -2588,7 +2873,8 @@ async function handle(act, ds, el, fromChange, ev) {
         const a = n(mv('wAmt')); if (a <= 0) { toast('أدخل مبلغاً', true); return; }
         const k = +mv('wWho'); const list = (S.settings.partners || []).slice();
         list[k] = Object.assign({}, list[k], { drawn: r2(n(list[k].drawn) + a) });
-        await saveSettings({ partners: list, cash: r2(n(S.settings.cash) - a) });
+        await saveSettings({ partners: list });
+        await addCash(-a);
         const rec = { id: uid('e'), date: mv('wDate'), time: nowTime(), kind: 'withdrawal', who: list[k].name,
           seller: who(), amount: a, note: mv('wNote') };
         await Store.append('expenses', rec.date, rec);
@@ -2607,6 +2893,8 @@ async function handle(act, ds, el, fromChange, ev) {
       }
       if (rec.noCash) { if (rec.partyId) await bumpParty(rec.partyId, n(rec.amount)); }
       else if (rec.kind !== 'recon') await receive(rec.destId || '', n(rec.amount));
+      await audit(rec.noCash ? 'حذف شطب دين' : 'حذف قيد مصروف',
+        (rec.cat || rec.kind) + ' · ' + money(rec.amount) + ' $ · ' + rec.date, { entry: rec });
       await Store.mutate('expenses', S.month, ds.id, () => null);
       await loadMonth(S.month, true); await saveSummary(S.month); S.summaries = null; render();
     }
@@ -2614,10 +2902,11 @@ async function handle(act, ds, el, fromChange, ev) {
   }
   case 'recon':
     modal('تسوية المبلغ النقدي',
-      fld('rAmt', 'المبلغ الفعلي في الدرج $', 'number', n(S.settings.cash), 'step="0.01"') + fld('rNote', 'سبب الفرق', 'text', ''),
+      fld('rAmt', 'المبلغ الفعلي في الدرج $', 'number', n(S.cash), 'step="0.01"') + fld('rNote', 'سبب الفرق', 'text', ''),
       async () => {
-        const v = n(mv('rAmt')), diff = r2(v - n(S.settings.cash));
-        await saveSettings({ cash: v });
+        const v = n(mv('rAmt')), diff = r2(v - n(S.cash));
+        await setCash(v);
+        await audit('تسوية صندوق', 'من ' + money(S.cash) + ' إلى ' + money(v) + ' $', { diff, note: mv('rNote') });
         if (diff !== 0) {
           const rec = { id: uid('e'), date: todayStr(), kind: 'recon', who: 'تسوية صندوق', amount: Math.abs(diff), note: (diff < 0 ? 'عجز ' : 'زيادة ') + money(Math.abs(diff)) + ' $ · ' + mv('rNote') };
           await Store.append('expenses', rec.date, rec);
@@ -2629,7 +2918,9 @@ async function handle(act, ds, el, fromChange, ev) {
   /* الإعدادات */
   case 'savesettings':
     await saveSettings({ shopName: mv('setName').trim() || 'دفتر المحل', rateTRY: n(mv('setRate')),
-      capital: n(mv('setCap')), cash: n(mv('setCash')), lowStock: n(mv('setLow')) });
+      capital: n(mv('setCap')), lowStock: n(mv('setLow')), lockMinutes: Math.max(0, n(mv('setLock'))) });
+    if (n(mv('setCash')) !== n(S.cash)) await setCash(n(mv('setCash')));
+    await audit('تعديل الإعدادات', 'رأس المال ' + money(mv('setCap')) + ' $ · سعر الصرف ' + mv('setRate'));
     toast('حُفظت الإعدادات'); break;
   case 'newpartner': case 'editpartner': {
     const list = (S.settings.partners || []).slice();
