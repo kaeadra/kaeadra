@@ -341,6 +341,22 @@ tfoot td{font-weight:700;border-top:1px solid var(--line);border-bottom:0;backgr
 .sheet footer{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:13px 18px;display:flex;gap:9px}
 .sheet footer .btn{flex:1;justify-content:center;padding:11px}
 
+/* صور الفواتير */
+.thumbs{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.thumb{width:56px;height:56px;border-radius:9px;overflow:hidden;border:1px solid var(--line);
+  background:var(--sunken);cursor:pointer;padding:0;display:grid;place-items:center;flex:none}
+.thumb:hover{border-color:var(--accent)}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block;font-size:0}
+.thumb.pdf{flex-direction:column;gap:2px;color:var(--muted);font-size:9px;font-weight:700}
+.thumb.pdf svg{width:18px;height:18px;stroke-width:1.8}
+.lightbox{position:fixed;inset:0;z-index:250;background:rgba(8,13,22,.92);display:flex;align-items:center;
+  justify-content:center;padding:16px;flex-direction:column;gap:12px}
+.lightbox img{max-width:100%;max-height:82vh;border-radius:10px;background:#fff}
+.buyline{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+.buyline:last-child{border-bottom:0}
+.upbox{border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;background:var(--sunken)}
+.upbox svg{width:24px;height:24px;stroke-width:1.7;color:var(--muted)}
+
 /* إيصال الزبون */
 .receipt{background:#fff;color:#16233A;border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-size:13px}
 :root[data-theme="dark"] .receipt, :root:not([data-theme="light"]) .receipt{background:#fff;color:#16233A}
@@ -1122,6 +1138,10 @@ const ICONS = {
   scan:   '<path d="M3.6 8.4V6.2a2.6 2.6 0 0 1 2.6-2.6h2.2M15.6 3.6h2.2A2.6 2.6 0 0 1 20.4 6.2v2.2M20.4 15.6v2.2a2.6 2.6 0 0 1-2.6 2.6h-2.2M8.4 20.4H6.2a2.6 2.6 0 0 1-2.6-2.6v-2.2"/><path d="M3.6 12h16.8"/>',
   tag:    '<path d="M3.6 11.2V5.4a1.8 1.8 0 0 1 1.8-1.8h5.8l9 9-7.6 7.6z"/><circle cx="8" cy="8" r="1.4"/>',
   back:   '<path d="M9.4 6.4 4 11.8l5.4 5.4"/><path d="M4 11.8h11.4a4.6 4.6 0 0 1 4.6 4.6v1.4"/>',
+  truck:  '<path d="M2.8 6.6h10.4v10.8H2.8z"/><path d="M13.2 10.2h3.6l2.8 3v4.2h-6.4z"/><circle cx="7" cy="18.6" r="1.7"/><circle cx="16.4" cy="18.6" r="1.7"/>',
+  image:  '<rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.2"/><circle cx="8.6" cy="9.8" r="1.6"/><path d="m3.6 16.6 4.6-4.2 3.4 3 3-2.6 5.8 5"/>',
+  camera: '<path d="M3.4 8.6a2 2 0 0 1 2-2h1.9l1.3-2h6.8l1.3 2h1.9a2 2 0 0 1 2 2v8.8a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.6" r="3.4"/>',
+  trash:  '<path d="M4.4 6.6h15.2M9.4 6.6V4.8a1.2 1.2 0 0 1 1.2-1.2h2.8a1.2 1.2 0 0 1 1.2 1.2v1.8"/><path d="M6.6 6.6 7.5 19a1.6 1.6 0 0 0 1.6 1.5h5.8a1.6 1.6 0 0 0 1.6-1.5l.9-12.4"/>',
   moon:   '<path d="M20.8 13a8.8 8.8 0 1 1-9.6-9.6A6.9 6.9 0 0 0 20.8 13Z"/>',
   logout: '<path d="M14.6 16.4 19 12l-4.4-4.4M19 12H8.4"/><path d="M10.6 4.5H6.2A1.7 1.7 0 0 0 4.5 6.2v11.6a1.7 1.7 0 0 0 1.7 1.7h4.4"/>',
   shield: '<path d="M12 3.2 5 6v5.5c0 4.2 2.9 8.1 7 9.3 4.1-1.2 7-5.1 7-9.3V6z"/><path d="m9.4 12 1.9 1.9 3.5-3.6"/>',
@@ -1150,6 +1170,7 @@ function svg(k, w) { return '<svg viewBox="0 0 24 24" fill="none" stroke="curren
 const NAV = [
   { id: 'pos',      label: 'بيع جديد',            short: 'بيع',      icon: 'pos',   plus: true, perm: 'sell' },
   { id: 'stock',    label: 'المخزون والجرد',       short: 'الجرد',    icon: 'stock', perm: 'stock' },
+  { id: 'buy',      label: 'المشتريات والموردون',  short: 'المشتريات',icon: 'truck', perm: 'buy' },
   { id: 'debts',    label: 'الديون والمستحقات',    short: 'الديون',   icon: 'debts', perm: 'debts' },
   { id: 'spend',    label: 'الاستهلاك والمصاريف',  short: 'الاستهلاك',icon: 'spend', perm: 'spend' },
   { id: 'cash',     label: 'الصناديق والمحافظ',    short: 'الصندوق',  icon: 'cash',  perm: 'cash'  },
@@ -1222,7 +1243,7 @@ function headActions(view) {
 function render() {
   if (renderGate()) return;
   const el = $('#view');
-  const fn = ({ pos: viewPOS, stock: viewStock, debts: viewDebts, spend: viewSpend, cash: viewCash,
+  const fn = ({ pos: viewPOS, stock: viewStock, buy: viewBuy, debts: viewDebts, spend: viewSpend, cash: viewCash,
                 report: viewReport, guard: viewGuard, settings: viewSettings })[S.view] || viewPOS;
   const y = window.scrollY;
   if (!can(navOf(S.view).perm)) { const first = myNav()[0]; if (first && first.id !== S.view) { S.view = first.id; renderNav(); } }
@@ -1649,12 +1670,12 @@ function viewStock() {
       </div>
     </section>
 
-    <section class="card">
-      <div class="pad"><div class="sec-h"><h2>شراء بضاعة</h2></div>
-      <p class="hint" style="margin:0 0 10px">سجّل البضاعة الواردة: تزيد الكمية، وتُحدَّث تكلفة الصنف بالمتوسط المرجّح، ويُخصم المدفوع من الصندوق.</p>
-      <button class="btn primary" data-act="newpurchase" type="button">+ فاتورة شراء</button></div>
-      <div class="list">${(book(S.month).purchases || []).slice().reverse().slice(0, 12).map(purchRow).join('') || emptyBox('لا مشتريات هذا الشهر', 'سجّل البضاعة الواردة لتحديث الكميات والتكلفة.', 'box')}</div>
-    </section>
+    ${can('buy') ? `<section class="card">
+      <div class="pad"><div class="sec-h"><h2>شراء بضاعة</h2>
+        <button class="btn sm" data-nav="buy" type="button">قسم المشتريات ↩</button></div>
+      <p class="hint" style="margin:0 0 10px">سجّل البضاعة الواردة مع صورة فاتورة المورّد: تزيد الكميات، وتُحدَّث التكلفة بالمتوسط المرجّح.</p>
+      <button class="btn primary" data-act="newbuy" type="button">+ فاتورة شراء</button></div>
+    </section>` : ''}
   </div>`;
 }
 viewStock.after = () => {
@@ -1702,13 +1723,6 @@ function prodRow(p) {
         ${needsOrder(p) && n(p.qty) > 0 ? '<span class="pill low">يحتاج طلباً</span>' : ''}</span></span>
     <span class="amt">${stocked ? '<span style="font-size:17px">' + money0(qty) + '</span><br><span style="font-size:10.5px;color:var(--muted)">قطعة</span>' : '<span class="pill acc">خدمة</span>'}</span>
   </div>`;
-}
-function purchRow(x) {
-  return `<div class="item"><span class="stripe"></span><span class="grow">
-    <span class="t">${esc((x.lines || []).map(l => l.name).join('، ') || 'فاتورة شراء')}</span>
-    <span class="m"><span class="mono">${esc(x.date)}</span>${x.supplierName ? '<span>' + esc(x.supplierName) + '</span>' : ''}
-    ${n(x.total) - n(x.paid) > 0 ? '<span class="pill low">باقٍ ' + money(n(x.total) - n(x.paid)) + ' $</span>' : '<span class="pill ok">مسدّدة</span>'}</span></span>
-    <span class="amt">${money(x.total)} $</span></div>`;
 }
 
 /* ---------- 10. الديون ---------- */
@@ -1793,6 +1807,92 @@ function payRow(x) {
         ${x.destId ? '<span class="pill neutral">' + esc(x.destName || destName(x.destId)) + '</span>' : ''}
         ${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span></span>
     <span class="amt">${x.dir === 'in' ? '+' : '−'}${money(x.amount)} $</span></div>`;
+}
+
+/* ---------- 10أ. المشتريات والموردون ---------- */
+S.usage = null;
+async function ensureUsage() {
+  if (S.usage) return;
+  S.usage = { files: 0, bytes: 0, maxBytes: 0, maxFiles: 0 };
+  const api = await assetsApi();
+  if (!api) return;
+  try { const r = await api.list(); S.usage = r.usage; if (S.view === 'buy') render(); } catch (e) { /* تجاهل */ }
+}
+
+function viewBuy() {
+  ensureUsage();
+  const b = book(S.month);
+  const rows = (b.purchases || []);
+  const total = rows.reduce((a, x) => a + n(x.total), 0);
+  const paid  = rows.reduce((a, x) => a + n(x.paid), 0);
+  const sups  = S.parties.filter(x => x.kind === 'supplier').slice()
+    .sort((a, c) => n(a.bal) - n(c.bal));
+  const owed  = sups.filter(x => n(x.bal) < 0).reduce((a, x) => a - n(x.bal), 0);
+  const photos = rows.reduce((a, x) => a + (x.photos || []).length, 0);
+  const u = S.usage || {};
+
+  return `
+  ${kpi([
+    { k: 'مشتريات ' + monthLabel(S.month), v: usd(total), s: rows.length + ' فاتورة', tone: 'acc', i: 'truck' },
+    { k: 'المدفوع منها', v: usd(paid), s: total - paid > 0 ? 'باقٍ ' + money(total - paid) + ' $' : 'مسدّدة بالكامل',
+      tone: total - paid > 0 ? 'amb' : 'pos', i: 'coin' },
+    { k: 'المستحق للموردين', v: usd(owed), s: sups.filter(x => n(x.bal) < 0).length + ' مورّد', tone: owed > 0 ? 'neg' : 'pos', i: 'alert' },
+    { k: 'صور الفواتير', v: '<span class="num">' + photos + '</span>',
+      s: u.maxBytes ? kb(u.bytes) + ' من ' + kb(u.maxBytes) : 'محفوظة مع الفاتورة', tone: 'vio', i: 'image' }
+  ])}
+
+  <div class="stack" style="margin-top:16px">
+    <section class="card">
+      <div class="pad"><div class="sec-h"><h2>فواتير الشراء</h2>
+        <div class="row"><button class="btn sm" data-act="expbuy" type="button">تصدير</button>
+        <button class="btn primary sm" data-act="newbuy" type="button">+ فاتورة شراء</button></div></div>
+        <p class="hint" style="margin:0">سجّل البضاعة الواردة من الجملة مع صورة الفاتورة. تزيد الكميات، وتُحدَّث تكلفة كل صنف بالمتوسط المرجّح، ويُقيَّد الباقي ديناً على المحل للمورّد.</p></div>
+      <div class="list">
+        ${rows.length ? rows.slice().reverse().map(buyRow).join('')
+          : emptyBox('لا فواتير شراء هذا الشهر', 'أول فاتورة تسجّلها تظهر هنا مع صورتها.', 'truck')}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="pad" style="padding-bottom:6px"><div class="sec-h" style="margin-bottom:0"><h2>الموردون</h2>
+        ${can('debts') ? '<button class="btn primary sm" data-act="newparty" type="button">+ مورّد</button>' : ''}</div></div>
+      <div class="list">
+        ${sups.length ? sups.map(x => `
+          <div class="item ${can('debts') ? 'click' : ''}" ${can('debts') ? 'data-act="party" data-id="' + x.id + '"' : ''}>
+            <span class="rowic"${n(x.bal) < 0 ? ' style="background:var(--bad-soft);color:var(--bad)"' : ''}>${svg('truck')}</span>
+            <span class="grow"><span class="t">${esc(x.name)}</span>
+              <span class="m">${x.phone ? '<span class="mono">' + esc(x.phone) + '</span>' : ''}
+                <span>${n(x.bal) < 0 ? 'علينا له' : n(x.bal) > 0 ? 'لنا عنده' : 'مسدّد'}</span>
+                <span>${rows.filter(r => r.supplierId === x.id).length} فاتورة هذا الشهر</span></span></span>
+            <span class="amt" style="color:${n(x.bal) < 0 ? 'var(--bad)' : 'var(--good)'}">${money(Math.abs(n(x.bal)))} $</span>
+          </div>`).join('') : emptyBox('لا موردون بعد', 'أضف موردي الجملة لتتبّع ما عليك لهم.', 'truck')}
+      </div>
+    </section>
+  </div>`;
+}
+
+function buyRow(x) {
+  const left = r2(n(x.total) - n(x.paid));
+  const ph = (x.photos || []);
+  return `<div class="item" style="align-items:flex-start">
+    <span class="rowic">${svg('truck')}</span>
+    <span class="grow">
+      <span class="t">${esc(x.supplierName || 'مورّد غير محدَّد')}${x.invNo ? ' <span class="pill code">' + esc(x.invNo) + '</span>' : ''}</span>
+      <span class="m"><span class="mono">${esc(x.date)}${x.time ? ' · ' + esc(x.time) : ''}</span>
+        ${x.seller ? '<span class="pill acc">' + esc(x.seller) + '</span>' : ''}
+        <span>${(x.lines || []).length} صنف</span>
+        ${left > 0 ? '<span class="pill low">باقٍ ' + money(left) + ' $</span>' : '<span class="pill ok">مسدّدة</span>'}
+        ${x.note ? '<span>' + esc(x.note) + '</span>' : ''}</span>
+      <span class="m" style="margin-top:3px">${esc((x.lines || []).map(l => l.name + '×' + money0(l.qty)).join('، '))}</span>
+      ${ph.length ? '<div class="thumbs">' + ph.map(f =>
+        /pdf/i.test(f.type || '')
+          ? `<button class="thumb pdf" type="button" data-act="openasset" data-id="${esc(f.id)}" title="${esc(f.name)}">${svg('clip')}<span>PDF</span></button>`
+          : `<button class="thumb" type="button" data-act="viewphoto" data-id="${esc(f.id)}" title="${esc(f.name)}"><img src="${blobUrl(f.id)}" alt="" loading="lazy"></button>`
+        ).join('') + '</div>' : ''}
+    </span>
+    <span class="amt">${money(x.total)} $</span>
+    ${can('delete') ? '<button class="btn ghost sm" data-act="delbuy" data-id="' + x.id + '" type="button" aria-label="حذف">✕</button>' : ''}
+  </div>`;
 }
 
 /* ---------- 10ب. الاستهلاك والمصاريف ---------- */
@@ -2529,6 +2629,69 @@ function viewSettings() {
 }
 viewSettings.after = () => {};
 
+/* ---------- 14أ. صور الفواتير ----------
+   تُحفظ الصورة في مخزن الملفات الخاص بالبرنامج ويُحفظ معرّفها في الفاتورة.
+   الرفع متاح لمن يملك صلاحية التعديل على الرابط؛ العرض متاح للجميع. */
+let Assets = undefined;
+async function assetsApi() {
+  if (Assets !== undefined) return Assets;
+  try { Assets = await window.claude?.use?.('assets') || null; } catch (e) { Assets = null; }
+  return Assets;
+}
+const blobUrl = id => '/_blob/' + id;
+const ASSET_ERR = {
+  too_large: 'الملف أكبر من الحد المسموح — صوّر بجودة أقل',
+  unsupported_type: 'نوع الملف غير مدعوم — استخدم صورة أو PDF',
+  quota_or_state: 'مساحة التخزين ممتلئة — احذف صوراً قديمة',
+  rate_limited: 'رفعٌ كثير بسرعة — انتظر قليلاً',
+  upstream_auth: 'انتهت الجلسة — أعد تحميل الصفحة',
+  not_granted: 'صلاحيتك على الرابط لا تسمح برفع الملفات',
+  capability_disabled: 'رفع الملفات غير متاح في هذا العرض'
+};
+
+/* تصغير الصورة قبل الرفع: صور الهاتف ٤–٨ م.ب وتكفي ١٦٠٠ بكسل لقراءة الفاتورة */
+async function shrinkImage(file, maxDim, quality) {
+  if (!/^image\//.test(file.type) || /svg/.test(file.type)) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    const out = await new Promise(res => cv.toBlob(res, 'image/jpeg', quality));
+    return (out && out.size < file.size) ? out : file;
+  } catch (e) { return file; }            /* صيغة لا يفكّها المتصفح — تُرفع كما هي */
+}
+
+async function uploadFiles(files, onEach) {
+  const api = await assetsApi();
+  if (!api) { toast('رفع الصور متاح لمن يملك صلاحية التعديل على الرابط', true); return []; }
+  const out = [];
+  for (const f of files) {
+    try {
+      const blob = await shrinkImage(f, 1600, 0.82);
+      const opts = {};
+      const t = blob.type || f.type;
+      if (!t || /;/.test(t)) opts.type = /pdf$/i.test(f.name) ? 'application/pdf' : 'image/jpeg';
+      const r = await api.upload(blob, opts);
+      const rec = { id: r.id, name: f.name || 'صورة', size: r.sizeBytes, type: r.contentType };
+      out.push(rec);
+      if (onEach) onEach(rec);
+    } catch (e) {
+      toast(ASSET_ERR[e && e.code] || 'تعذّر رفع ' + (f.name || 'الملف'), true);
+    }
+  }
+  return out;
+}
+async function deleteAssets(ids) {
+  const api = await assetsApi();
+  if (!api) return;
+  for (const id of ids) { try { await api.delete(id); } catch (e) { /* محذوف سلفاً */ } }
+}
+const kb = b => n(b) < 1024 * 1024 ? Math.round(n(b) / 1024) + ' ك.ب' : (n(b) / 1048576).toFixed(1) + ' م.ب';
+
 /* ---------- 14ب. مسح الباركود ---------- */
 let scanStop = null;
 function scanSupported() { return typeof window.BarcodeDetector !== 'undefined'; }
@@ -2605,6 +2768,50 @@ function onScanned(code) {
       await saveProduct(pr);
       closeModal(); toast('رُبط الباركود بـ ' + pr.name);
     }, 'اربط');
+}
+
+/* أسطر فاتورة الشراء وصورها داخل النافذة */
+S.buy = { lines: [], photos: [] };
+function paintBuyLines() {
+  const el = $('#buyLines');
+  if (!el) return;
+  const L = S.buy.lines;
+  el.innerHTML = L.length
+    ? L.map((l, i) => `<div class="buyline">
+        <span class="grow" style="min-width:0"><b style="font-weight:600">${esc(l.name)}</b>
+          <span style="color:var(--muted);font-size:11.5px;display:block">
+            <span class="num">${money0(l.qty)}</span> × <span class="num">${money(l.cost)}</span> $ =
+            <span class="num">${money(n(l.qty) * n(l.cost))}</span> $</span></span>
+        <button class="btn ghost sm" type="button" data-act="buyrmline" data-i="${i}" aria-label="حذف السطر">✕</button>
+      </div>`).join('')
+    : '<div class="hint">لم تُضف أصناف بعد.</div>';
+  paintBuyTotal();
+}
+function paintBuyPhotos() {
+  const el = $('#upList');
+  if (!el) return;
+  el.innerHTML = S.buy.photos.map((f, i) => /pdf/i.test(f.type || '')
+    ? `<span class="thumb pdf" title="${esc(f.name)}">${svg('clip')}<span>PDF</span>
+        <button class="btn ghost sm" type="button" data-act="buyrmphoto" data-i="${i}" style="padding:0 3px">✕</button></span>`
+    : `<span style="position:relative;display:inline-block">
+        <span class="thumb"><img src="${blobUrl(f.id)}" alt=""></span>
+        <button class="btn ghost sm" type="button" data-act="buyrmphoto" data-i="${i}"
+          style="position:absolute;top:-6px;inset-inline-start:-6px;background:var(--surface);border:1px solid var(--line);border-radius:50%;width:20px;height:20px;padding:0;line-height:1">✕</button>
+      </span>`).join('') +
+    (S.buy.photos.length ? '<span class="hint" style="align-self:center">' +
+      kb(S.buy.photos.reduce((a, f) => a + n(f.size), 0)) + '</span>' : '');
+}
+function paintBuyTotal() {
+  const el = $('#buyTot');
+  if (!el) return;
+  const total = r2(S.buy.lines.reduce((a, l) => a + n(l.qty) * n(l.cost), 0));
+  const paid = r2(Math.min(n(mv('uPaid')), total));
+  const left = r2(total - paid);
+  el.className = 'banner' + (left > 0 ? ' warn' : '');
+  el.querySelector('span:last-child').innerHTML =
+    '<b>إجمالي الفاتورة ' + money(total) + ' $</b>' +
+    (left > 0 ? 'المدفوع ' + money(paid) + ' $ — يبقى ' + money(left) + ' $ ديناً على المحل للمورّد.'
+              : 'مدفوعة بالكامل.');
 }
 
 /* ---------- 15. النوافذ ---------- */
@@ -2806,7 +3013,8 @@ const ACT_PERM = {
   addline: 'sell', pickadd: 'sell', freeline: 'sell', checkout: 'sell', scanpos: 'sell', retsale: 'sell',
   bulkprice: 'stock', scanfield: 'stock', expret: 'reports', dayclose: 'cash',
   newprod: 'stock', editprod: 'stock', delprod: 'stock', stocktake: 'stock', newprodquick: 'stock', expstock: 'stock',
-  newpurchase: 'buy',
+  newpurchase: 'buy', newbuy: 'buy', buyaddline: 'buy', buyrmline: 'buy', buyrmphoto: 'buy',
+  uppick: 'buy', delbuy: 'delete', expbuy: 'buy',
   newparty: 'debts', party: 'debts', payin: 'debts', payout: 'debts', delparty: 'debts', expdebts: 'debts',
   newsite: 'cash', site: 'cash', topup: 'cash', delsite: 'cash', recon: 'cash', newdraw: 'cash',
   newexp: 'spend', newdead: 'spend', newspendcat: 'spend', expspend: 'spend',
@@ -3333,33 +3541,157 @@ async function handle(act, ds, el, fromChange, ev) {
   }
 
   /* الشراء */
-  case 'newpurchase':
+  case 'newpurchase': go('buy'); setTimeout(() => handle('newbuy', {}, null), 120); break;
+  case 'newbuy': {
+    if (!can('buy')) { toast('ليس لديك صلاحية تسجيل المشتريات', true); break; }
+    S.buy = { lines: [], photos: [] };
+    const api = await assetsApi();
     modal('فاتورة شراء',
-      '<div class="grid2">' + fld('uDate', 'التاريخ', 'date', todayStr()) + sel('uSup', 'المورّد', partyOptions(), '') + '</div>' +
-      sel('uProd', 'الصنف', [{ v: '', t: '— اختر صنفاً —' }].concat(S.products.map(p => ({ v: p.id, t: p.name + (p.code ? ' · ' + p.code : '') }))), '') +
-      '<div class="grid3">' + fld('uQty', 'الكمية', 'number', 1, 'step="1"') + fld('uCost', 'تكلفة الوحدة $', 'number', '', 'step="0.01"') +
-      fld('uPaid', 'المدفوع $', 'number', 0, 'step="0.01"') + '</div>' +
-      fld('uNote', 'ملاحظة', 'text', '') +
-      '<p class="hint">تُحدَّث تكلفة الصنف بالمتوسط المرجّح بين المخزون القديم والوارد الجديد.</p>',
+      '<div class="grid2">' +
+        sel('uSup', 'المورّد', partyOptions('supplier'), '') +
+        fld('uInv', 'رقم فاتورة المورّد', 'text', '') + '</div>' +
+      '<div class="grid2">' + fld('uDate', 'التاريخ', 'date', todayStr()) + sellerField('uSeller') + '</div>' +
+
+      '<div class="f"><label>أصناف الفاتورة</label>' +
+        '<div class="grid3">' +
+          '<div class="f"><label for="uProd">الصنف</label><select id="uProd">' +
+            '<option value="">— اختر —</option><option value="__new">+ صنف جديد…</option>' +
+            S.products.map(pp => `<option value="${esc(pp.id)}">${esc((pp.sku ? pp.sku + ' — ' : '') + pp.name + (pp.brand ? ' ' + pp.brand : ''))}</option>`).join('') +
+          '</select></div>' +
+          fld('uQty', 'الكمية', 'number', 1, 'step="1" min="1"') +
+          fld('uCost', 'تكلفة الوحدة $', 'number', '', 'step="0.01"') +
+        '</div>' +
+        '<div class="row" style="margin-top:9px"><button class="btn sm" data-act="buyaddline" type="button">+ أضف السطر</button></div>' +
+        '<div id="buyLines" style="margin-top:9px"></div>' +
+      '</div>' +
+
+      '<div class="f"><label>صور الفاتورة</label>' +
+        (api
+          ? '<div class="upbox" id="upBox">' + svg('camera') +
+              '<div style="margin:7px 0 10px;font-size:12.5px;color:var(--muted)">صوّر الفاتورة أو اخترها من المعرض — تُصغَّر تلقائياً قبل الحفظ</div>' +
+              '<input id="upFile" type="file" accept="image/*,application/pdf" multiple hidden>' +
+              '<button class="btn primary sm" data-act="uppick" type="button">اختر صوراً</button></div>'
+          : '<div class="banner warn"><span class="bic">' + svg('image') + '</span><span><b>رفع الصور غير متاح لك</b>يحتاج صلاحية التعديل على الرابط. يمكنك تسجيل الفاتورة بلا صورة.</span></div>') +
+        '<div class="thumbs" id="upList" style="margin-top:9px"></div>' +
+      '</div>' +
+
+      '<div class="grid3">' +
+        fld('uPaid', 'المدفوع الآن $', 'number', 0, 'step="0.01"') +
+        sel('uDest', 'دُفع من', [{ v: '', t: 'درج المحل (كاش)' }].concat(payTargets().map(x => ({ v: x.id, t: x.name }))), '') +
+        fld('uNote', 'ملاحظة', 'text', '') + '</div>' +
+      '<div class="banner" id="buyTot"><span class="bic">' + svg('coin') + '</span><span></span></div>',
       async () => {
-        const p = P(mv('uProd'));
-        if (!p) { toast('اختر الصنف', true); return; }
-        const q = n(mv('uQty')), c = n(mv('uCost'));
-        if (q <= 0) { toast('أدخل كمية صحيحة', true); return; }
-        const oldQ = Math.max(0, n(p.qty));
-        p.cost = r2(oldQ > 0 ? (oldQ * n(p.cost) + q * c) / (oldQ + q) : c);
-        p.qty = r2(oldQ + q);
-        await saveProduct(p);
-        const total = r2(q * c), paid = r2(Math.min(n(mv('uPaid')), total));
-        const rec = { id: uid('u'), date: mv('uDate'), time: nowTime(), seller: who(),
-          supplierId: mv('uSup'), supplierName: PARTY(mv('uSup')) ? PARTY(mv('uSup')).name : '',
-          lines: [{ pid: p.id, name: p.name, qty: q, cost: c }], total, paid, note: mv('uNote') };
-        if (total - paid > 0 && rec.supplierId) await bumpParty(rec.supplierId, -(total - paid));
-        await addCash(-paid);
+        const lines = S.buy.lines;
+        if (!lines.length) { toast('أضف صنفاً واحداً على الأقل', true); return; }
+        const total = r2(lines.reduce((a2, l) => a2 + n(l.qty) * n(l.cost), 0));
+        const paid  = r2(Math.min(n(mv('uPaid')), total));
+        const supId = mv('uSup');
+        /* الكميات والتكلفة بالمتوسط المرجّح */
+        for (const l of lines) {
+          const pr = P(l.pid); if (!pr) continue;
+          const oldQ = Math.max(0, n(pr.qty));
+          pr.cost = r2(oldQ > 0 ? (oldQ * n(pr.cost) + n(l.qty) * n(l.cost)) / (oldQ + n(l.qty)) : n(l.cost));
+          pr.qty = r2(oldQ + n(l.qty));
+          if (!n(pr.price)) pr.price = priceFrom(pr.cost, marginOf(pr.group || ''));
+          await saveProduct(pr);
+        }
+        if (total - paid > 0 && supId) await bumpParty(supId, -(total - paid));
+        if (paid > 0) await receive(mv('uDest'), -paid);
+        const rec = { id: uid('u'), date: mv('uDate'), time: nowTime(), seller: mv('uSeller').trim() || who(),
+          supplierId: supId, supplierName: PARTY(supId) ? PARTY(supId).name : '', invNo: mv('uInv').trim(),
+          lines: lines.map(l => ({ pid: l.pid, sku: l.sku, name: l.name, qty: n(l.qty), cost: n(l.cost) })),
+          total, paid, destId: mv('uDest'), destName: destName(mv('uDest')),
+          photos: S.buy.photos, note: mv('uNote').trim() };
         await Store.append('purchases', rec.date, rec);
+        await audit('فاتورة شراء', money(total) + ' $ · ' + (rec.supplierName || 'بلا مورّد') +
+          (rec.photos.length ? ' · ' + rec.photos.length + ' صورة' : ''), { purchase: rec });
         await loadMonth(monthOf(rec.date), true);
+        S.usage = null; S.buy = { lines: [], photos: [] };
         closeModal(); render(); toast('سُجّلت فاتورة الشراء');
-      }, 'تسجيل'); break;
+      }, 'تسجيل الفاتورة');
+
+    const prodSel = $('#uProd');
+    if (prodSel) prodSel.onchange = () => {
+      if (prodSel.value === '__new') {
+        prodSel.value = '';
+        toast('أضف الصنف من قسم المخزون أولاً ثم عُد للفاتورة', true);
+        return;
+      }
+      const pr = P(prodSel.value);
+      if (pr && $('#uCost') && !$('#uCost').value) $('#uCost').value = n(pr.cost) || '';
+    };
+    const fi = $('#upFile');
+    if (fi) fi.onchange = async () => {
+      const files = Array.from(fi.files || []);
+      fi.value = '';
+      if (!files.length) return;
+      toast('جاري رفع ' + files.length + ' ملفاً…');
+      const up = await uploadFiles(files, rec => { S.buy.photos.push(rec); paintBuyPhotos(); });
+      if (up.length) toast('رُفع ' + up.length + ' ملفاً');
+    };
+    paintBuyLines(); paintBuyPhotos();
+    const pd = $('#uPaid'); if (pd) pd.oninput = paintBuyTotal;
+    break;
+  }
+  case 'uppick': { const fi2 = $('#upFile'); if (fi2) fi2.click(); break; }
+  case 'buyaddline': {
+    const pr = P(mv('uProd'));
+    const q = n(mv('uQty')), c = n(mv('uCost'));
+    if (!pr) { toast('اختر الصنف', true); break; }
+    if (q <= 0) { toast('أدخل كمية صحيحة', true); break; }
+    if (c <= 0) { toast('أدخل تكلفة الوحدة', true); break; }
+    S.buy.lines.push({ pid: pr.id, sku: pr.sku || '', name: pr.name + (pr.brand ? ' ' + pr.brand : ''), qty: q, cost: c });
+    $('#uProd').value = ''; $('#uQty').value = 1; $('#uCost').value = '';
+    paintBuyLines(); break;
+  }
+  case 'buyrmline': { S.buy.lines.splice(+ds.i, 1); paintBuyLines(); break; }
+  case 'buyrmphoto': {
+    const ph = S.buy.photos[+ds.i];
+    if (ph) { await deleteAssets([ph.id]); S.buy.photos.splice(+ds.i, 1); paintBuyPhotos(); }
+    break;
+  }
+  case 'viewphoto': {
+    const lb = document.createElement('div');
+    lb.className = 'lightbox';
+    lb.innerHTML = '<img src="' + blobUrl(ds.id) + '" alt="صورة الفاتورة">' +
+      '<button class="btn" type="button">إغلاق</button>';
+    lb.onclick = () => lb.remove();
+    document.body.appendChild(lb);
+    break;
+  }
+  case 'openasset': {
+    try { window.open(blobUrl(ds.id), '_blank'); }
+    catch (e) { toast('تعذّر فتح الملف في هذا العرض', true); }
+    break;
+  }
+  case 'delbuy': {
+    const rec = (book(S.month).purchases || []).find(x => x.id === ds.id);
+    if (!rec) break;
+    if (!confirm('حذف فاتورة الشراء ' + money(rec.total) + ' $؟\nتُخصم الكميات من الجرد ويُعاد المبلغ المدفوع إلى الصندوق.')) break;
+    for (const l of (rec.lines || [])) {
+      const pr = P(l.pid); if (!pr) continue;
+      pr.qty = r2(n(pr.qty) - n(l.qty));
+      await saveProduct(pr);
+    }
+    if (n(rec.total) - n(rec.paid) > 0 && rec.supplierId) await bumpParty(rec.supplierId, n(rec.total) - n(rec.paid));
+    if (n(rec.paid) > 0) await receive(rec.destId || '', n(rec.paid));
+    await deleteAssets((rec.photos || []).map(f => f.id));
+    await audit('حذف فاتورة شراء', money(rec.total) + ' $ · ' + (rec.supplierName || '—'), { purchase: rec });
+    await Store.mutate('purchases', S.month, rec.id, () => null);
+    await loadMonth(S.month, true); S.usage = null; render();
+    toast('حُذفت فاتورة الشراء');
+    break;
+  }
+  case 'expbuy': {
+    const rows = (book(S.month).purchases || []);
+    download('المشتريات-' + S.month + '.csv', csv([['التاريخ','الوقت','المورّد','رقم الفاتورة','الأصناف','الإجمالي $','المدفوع $','الباقي $','دُفع من','الصور','من سجّلها','ملاحظة']]
+      .concat(rows.map(x => [x.date, x.time || '', x.supplierName || '', x.invNo || '',
+        (x.lines || []).map(l => l.name + '×' + l.qty + '@' + l.cost).join(' | '),
+        n(x.total), n(x.paid), r2(n(x.total) - n(x.paid)),
+        x.destId ? (x.destName || destName(x.destId)) : 'درج المحل',
+        (x.photos || []).length, x.seller || '', x.note || '']))));
+    break;
+  }
 
   /* الحسابات */
   case 'newparty': case 'party': {
