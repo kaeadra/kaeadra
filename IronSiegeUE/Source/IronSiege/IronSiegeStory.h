@@ -1,6 +1,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "MissionRules.h"
+#include "RankRules.h"
 
 class UTexture2D;
 
@@ -29,4 +30,8 @@ IRONSIEGE_API IronMissions::Progress LoadProgress();
 IRONSIEGE_API void SaveProgress(const IronMissions::Progress& Progress);
 IRONSIEGE_API void LoadLastChoice(int32& Driver, int32& Vehicle);
 IRONSIEGE_API void SaveLastChoice(int32 Driver, int32 Vehicle);
+
+// Every driver's experience (RankRules.h), kept in Game.ini beside the campaign progress.
+IRONSIEGE_API IronRanks::Roster LoadRoster();
+IRONSIEGE_API void SaveRoster(const IronRanks::Roster& Roster);
 }

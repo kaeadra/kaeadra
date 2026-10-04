@@ -294,9 +294,9 @@ void AIronSiegeHUD::DrawWaveStatus(const AIronSiegeGameMode* GameMode)
 
 void AIronSiegeHUD::DrawGameOver(const AIronSiegeGameMode* GameMode)
 {
-	// Survival: the run's result against the best one.
+	// Survival: the run's result against the best one, and what the driver earned.
 	TGuardValue<bool> MenuFont(bMenuFont, true);
-	const FVector2D Size(760.f, 440.f);
+	const FVector2D Size(760.f, 490.f);
 	const FVector2D TopLeft((Canvas->ClipX - Size.X) * 0.5f, (Canvas->ClipY - Size.Y) * 0.5f - 40.f);
 	DrawPanel(TopLeft, Size, 0.86f);
 	const FLinearColor Dim(0.62f, 0.64f, 0.68f);
@@ -312,6 +312,8 @@ void AIronSiegeHUD::DrawGameOver(const AIronSiegeGameMode* GameMode)
 	Row(TEXT("HudScore"), TEXT("Score"), GameMode->GetScore(), FLinearColor(1.f, 0.9f, 0.4f));
 	DrawCentred(Y + 8.f, IronText::Str(TEXT("HudBest"), TEXT("Best")) + TEXT(":  ") + FString::Format(*IronText::Str(TEXT("HudBestLine"), TEXT("{0} pts  (wave {1}, {2} kills)")),
 		{ GameMode->GetBestScore(), GameMode->GetBestWave(), GameMode->GetBestKills() }), FLinearColor::Yellow);
+	float XpY = Y + 56.f;
+	DrawDriverXp(GameMode, TopLeft.X + 50.f, XpY, Size.X - 100.f);
 	DrawCentred(TopLeft.Y + Size.Y - 60.f, IronText::Str(TEXT("HudRedeploy"), TEXT("Enter: Redeploy")) + TEXT("     ") + IronText::Str(TEXT("HudMenuBack"), TEXT("F2: Main menu")), Dim);
 }
 
@@ -814,7 +816,7 @@ void AIronSiegeHUD::DrawVehicleBars(const AWarVehiclePawn* Car, float X, float Y
 		}
 		else
 		{
-			Bar(State.ReadyFraction(Def), FLinearColor(0.55f, 0.5f, 0.4f), FString::Printf(TEXT("%s  %.0f"), *Name, State.CooldownLeft), Row);
+			Bar(State.ReadyFraction(Def, Car->GetAbilityCooldownScale()), FLinearColor(0.55f, 0.5f, 0.4f), FString::Printf(TEXT("%s  %.0f"), *Name, State.CooldownLeft), Row);
 		}
 		Row += 1.f;
 	}

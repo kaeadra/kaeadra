@@ -1532,6 +1532,20 @@ void UIronSiegeCheatManager::DebugCampaign(const FString& Action, int32 Stars)
 	UE_LOG(LogTemp, Log, TEXT("IronSiege: campaign %s - %d mission(s) done, %d star(s)"), *Action, Progress.Completed(), Progress.TotalStars());
 }
 
+void UIronSiegeCheatManager::DebugDriverXp(int32 Driver, int32 Xp)
+{
+	IronRanks::Roster Roster = IronStory::LoadRoster();
+	for (int32 d = 0; d < IronCrew::DriverCount; ++d)
+	{
+		if (Driver < 0 || d == Driver)
+		{
+			Roster.Xp[d] = FMath::Clamp(Xp, 0, 1000000);
+		}
+	}
+	IronStory::SaveRoster(Roster);
+	UE_LOG(LogTemp, Log, TEXT("IronSiege: driver %d xp set to %d (rank %d)"), Driver, Xp, IronRanks::RankFor(FMath::Max(Xp, 0)));
+}
+
 void UIronSiegeCheatManager::DebugRadio(int32 Speaker, int32 Mood)
 {
 	const APlayerController* PC = GetOuterAPlayerController();

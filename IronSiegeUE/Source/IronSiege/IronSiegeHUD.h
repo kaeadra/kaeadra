@@ -44,6 +44,8 @@ private:
 	void DrawVehicleSelect(AIronSiegePlayerController* PC);
 	void DrawWaveStatus(const AIronSiegeGameMode* GameMode);
 	void DrawGameOver(const AIronSiegeGameMode* GameMode);
+	// The driver's experience from the match just ended, at (X, Y) across W; moves Y past it.
+	void DrawDriverXp(const AIronSiegeGameMode* GameMode, float X, float& Y, float W);
 	void DrawCrosshair(const class IIronVehicle* Vehicle);
 	void DrawSupplyMarkers();
 	void DrawNotices();

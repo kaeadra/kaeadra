@@ -113,8 +113,65 @@ const TMap<FString, FString>& ArabicTable()
 		{ TEXT("M8Out0"), TEXT("مستحيل... حصاري...") },
 		{ TEXT("M8Out1"), TEXT("انتهى الأمر. الطريق إلى مرسى مفتوح. أهلًا بعودتك يا كاسر الحصار.") },
 
+		// ---- Act II, mission 9
+		{ TEXT("M9Name"), TEXT("الهزّة الارتدادية") },
+		{ TEXT("M9Brief0"), TEXT("ثلاثة أسابيع من السلام. ثم عثر كشّاف على حطام العملاق بين الكثبان، ولم يكن بداخله أحد.") },
+		{ TEXT("M9Brief1"), TEXT("فارغا حيّ. أتباعه يسمّون أنفسهم «بقايا الحديد»، وهم يفرغون المستودعات القديمة.") },
+		{ TEXT("M9Brief2"), TEXT("تفقّد موقع الحطام، واكسر النهّابين، وأحرق ما جمعوه قبل أن يتّجه شمالًا.") },
+		{ TEXT("M9Obj0"), TEXT("اذهب إلى موقع الحطام") },
+		{ TEXT("M9S0L0"), TEXT("حدّدنا موقع الحطام. افتح عينيك يا كاسر الحصار، فهناك من قاد فوق هذه الرمال مؤخرًا.") },
+		{ TEXT("M9Obj1"), TEXT("دمّر نهّابي البقايا") },
+		{ TEXT("M9S1L0"), TEXT("أهداف من كل جهة! ألوان البقايا، كانوا ينتظرونك.") },
+		{ TEXT("M9S1L1"), TEXT("هانا، أنا الغراب. لا تقطعي الاتصال، ستريدين سماع ما أعرفه عن فارغا.") },
+		{ TEXT("M9Obj2"), TEXT("أحرق مخازن البقايا") },
+		{ TEXT("M9S2L0"), TEXT("مخزنان جنوبك. فارغا يحتاج ذلك الوقود أكثر من حاجته إلى الجنود.") },
+		{ TEXT("M9Out0"), TEXT("المخازن تحترق. أيتها الغراب... إن كان هذا فخًّا فسأجدك بنفسي.") },
+		{ TEXT("M9Out1"), TEXT("لو كان فخًّا لكنتِ فيه الآن.") },
+
+		// ---- Mission 10
+		{ TEXT("M10Name"), TEXT("كسر القيود") },
+		{ TEXT("M10Brief0"), TEXT("أسرت البقايا أهالي قرى الميناء. تقول الغراب إنهم محتجزون في ساحة الحاويات.") },
+		{ TEXT("M10Brief1"), TEXT("لدينا ثلاث شاحنات لإخراجهم. يجب أن تصل اثنتان منها على الأقل إلى البوّابة.") },
+		{ TEXT("M10Brief2"), TEXT("ثم احمِ محطّة الترحيل في الساحة حتى تمتلئ قوارب الإجلاء. لا تدعهم يقطعون إشارتنا.") },
+		{ TEXT("M10Obj0"), TEXT("رافق شاحنات الأسرى إلى البوّابة") },
+		{ TEXT("M10S0L0"), TEXT("الشاحنات تتحرّك والأسرى على متنها. أبعِد البقايا عنها.") },
+		{ TEXT("M10Obj1"), TEXT("دافع عن المحطّة حتى تمتلئ القوارب") },
+		{ TEXT("M10S1L0"), TEXT("القوارب تمتلئ. خمس وسبعون ثانية، اصمد عند المحطّة!") },
+		{ TEXT("M10S1L1"), TEXT("قنّاصو المدافع على الرافعات. يصوّبون على محطّتك لا عليك.") },
+		{ TEXT("M10Out0"), TEXT("كل الأسرى على متن القوارب. الميناء سيتذكّر من جاء لإنقاذه.") },
+		{ TEXT("M10Out1"), TEXT("خطوة فارغا التالية شبكة الكهرباء. يريد أن يُغرق مرسى في الظلام.") },
+
+		// ---- Mission 11
+		{ TEXT("M11Name"), TEXT("الظلام") },
+		{ TEXT("M11Brief0"), TEXT("فخّخ مهندسو فارغا محطّات الكهرباء في مرسى. إن ضغطوا الزرّ غرقت المدينة في الظلام طوال الشتاء.") },
+		{ TEXT("M11Brief1"), TEXT("استولِ على المحطّات الثلاث واثبُت في كل واحدة حتى يقفلها مهندسونا.") },
+		{ TEXT("M11Brief2"), TEXT("ثم اصمد أمام كل ما يرسله لاستعادتها. الغراب ستنبّهك إلى قنّاصي المدافع.") },
+		{ TEXT("M11Obj0"), TEXT("أمّن محطّات الكهرباء") },
+		{ TEXT("M11S0L0"), TEXT("ثلاث محطّات على الجادّة. قف داخل كل حلقة واثبُت فيها.") },
+		{ TEXT("M11Obj1"), TEXT("اصمد في الحيّ حتى تُقفل الشبكة") },
+		{ TEXT("M11S1L0"), TEXT("ها هو كل ما بقي له في المدينة. لا تتوقّف وإلا حاصروك.") },
+		{ TEXT("M11S1L1"), TEXT("تسعون ثانية يا كاسر الحصار، وبعدها تبقى أنوار مرسى مضاءة.") },
+		{ TEXT("M11Out0"), TEXT("الشبكة مقفلة. سيكون لمرسى نور هذا الشتاء.") },
+		{ TEXT("M11Out1"), TEXT("أخذتَ حصاري، والآن مدينتي. تعالَ شمالًا يا كاسر الحصار، سأكون بانتظارك.") },
+
+		// ---- Mission 12
+		{ TEXT("M12Name"), TEXT("التاج الحديدي") },
+		{ TEXT("M12Brief0"), TEXT("أعاد فارغا بناء العملاق في آخر قلاعه على الجليد، وسمّاه «التاج الحديدي».") },
+		{ TEXT("M12Brief1"), TEXT("أوقف قافلة وقوده، وحطّم مولّدات الدروع الثلاثة، وعندها سيضطرّ إلى مواجهتك بنفسه.") },
+		{ TEXT("M12Brief2"), TEXT("اليوم ينتهي كل شيء. الجميع معك يا كاسر الحصار، حتى الغراب.") },
+		{ TEXT("M12Obj0"), TEXT("أوقف قافلة الوقود") },
+		{ TEXT("M12S0L0"), TEXT("شاحنات الوقود على البحيرة. أوقفها قبل أن تصل إلى القلعة.") },
+		{ TEXT("M12Obj1"), TEXT("دمّر مولّدات الدروع") },
+		{ TEXT("M12S1L0"), TEXT("أفضل رجاله يحرسون المولّدات. علّمتُ نصفهم الرماية، وهم يصوّبون أمام الهدف، فانحرف في اللحظة الأخيرة.") },
+		{ TEXT("M12Obj2"), TEXT("دمّر التاج الحديدي") },
+		{ TEXT("M12S2L0"), TEXT("هذه الآلة بُنيت لتنهيك. اركع!") },
+		{ TEXT("M12S2L1"), TEXT("هذا هو التاج الحديدي. نقاط الضعف نفسها، ودروع أكثر بكثير. اضربه بكل ما لديك!") },
+		{ TEXT("M12Out0"), TEXT("لا... الحديد... كان يجب أن يصمد...") },
+		{ TEXT("M12Out1"), TEXT("انتهى الأمر. انكسرت البقايا وتحرّرت مرسى. شكرًا لك يا كاسر الحصار.") },
+
 		{ TEXT("BossRaven"), TEXT("الغراب") },
 		{ TEXT("BossBaron"), TEXT("البارون الحديدي") },
+		{ TEXT("BossCrown"), TEXT("التاج الحديدي") },
 
 		// ---- The crew
 		{ TEXT("DriverRinName"), TEXT("رين كوروساوا") },
@@ -273,6 +330,12 @@ const TMap<FString, FString>& ArabicTable()
 		{ TEXT("HudMenuBack"), TEXT("F2: القائمة الرئيسية") },
 		{ TEXT("NoticeLeave"), TEXT("اضغط F2 مرة أخرى للعودة إلى القائمة الرئيسية") },
 		{ TEXT("KAbility"), TEXT("قدرة السائق") },
+		{ TEXT("MenuStarBonus2"), TEXT("عند 8 نجوم: درع   عند 16: الرشاش والصواريخ   عند 24: المحرّك وأسلحة الطاقة") },
+		{ TEXT("MenuActTwo"), TEXT("الفصل الثاني") },
+		{ TEXT("MenuRank"), TEXT("الرتبة") },
+		{ TEXT("MenuRankMax"), TEXT("القصوى") },
+		{ TEXT("MisRankUp"), TEXT("ترقية!  الرتبة {0}: ميزة أقوى وقدرة أسرع") },
+		{ TEXT("MisCampaignFinal"), TEXT("سقطت بقايا الحديد") },
 	};
 	return Table;
 }
@@ -429,6 +492,37 @@ void SaveProgress(const IronMissions::Progress& Progress)
 		Parts.Add(FString::FromInt(Progress.Best[i]));
 	}
 	GConfig->SetString(GCampaignSection, TEXT("Stars"), *FString::Join(Parts, TEXT(",")), GGameIni);
+	GConfig->Flush(false, GGameIni);
+}
+
+IronRanks::Roster LoadRoster()
+{
+	IronRanks::Roster Roster;
+	FString Saved;
+	if (GConfig && GConfig->GetString(GCampaignSection, TEXT("DriverXP"), Saved, GGameIni))
+	{
+		TArray<FString> Parts;
+		Saved.ParseIntoArray(Parts, TEXT(","));
+		for (int32 i = 0; i < Parts.Num() && i < IronCrew::DriverCount; ++i)
+		{
+			Roster.Xp[i] = FMath::Clamp(FCString::Atoi(*Parts[i]), 0, 1000000);
+		}
+	}
+	return Roster;
+}
+
+void SaveRoster(const IronRanks::Roster& Roster)
+{
+	if (!GConfig)
+	{
+		return;
+	}
+	TArray<FString> Parts;
+	for (int32 i = 0; i < IronCrew::DriverCount; ++i)
+	{
+		Parts.Add(FString::FromInt(Roster.Xp[i]));
+	}
+	GConfig->SetString(GCampaignSection, TEXT("DriverXP"), *FString::Join(Parts, TEXT(",")), GGameIni);
 	GConfig->Flush(false, GGameIni);
 }
 

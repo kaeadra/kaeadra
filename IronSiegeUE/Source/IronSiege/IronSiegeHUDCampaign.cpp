@@ -15,6 +15,7 @@
 #include "IronSiegeUserSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "MissionRules.h"
+#include "RankRules.h"
 #include "Sound/SoundBase.h"
 #include "TextureResource.h"
 #include "UpgradeRules.h"
@@ -37,6 +38,18 @@ FString Clock(float Seconds)
 FString Line(const char* Key, const char* English)
 {
 	return IronText::Str(ANSI_TO_TCHAR(Key), ANSI_TO_TCHAR(English));
+}
+
+// "RANK 3   1240 / 1600 XP" (or "MAX" at the top rank).
+FString RankLine(int32 Xp)
+{
+	const int32 Rank = IronRanks::RankFor(Xp);
+	const FString Head = FString::Printf(TEXT("%s %d"), *IronText::Str(TEXT("MenuRank"), TEXT("RANK")), Rank);
+	if (Rank >= IronRanks::MaxRank)
+	{
+		return FString::Printf(TEXT("%s   %d XP   (%s)"), *Head, Xp, *IronText::Str(TEXT("MenuRankMax"), TEXT("MAX")));
+	}
+	return FString::Printf(TEXT("%s   %d / %d XP"), *Head, Xp, IronRanks::Threshold(Rank + 1));
 }
 
 // What the campaign hands out for a mission, as a readable list ("Mine layer, Armor plating 2").
@@ -347,10 +360,21 @@ void AIronSiegeHUD::DrawMissionSelect(AIronSiegePlayerController* PC)
 	const int32 Cursor = PC->GetMissionCursor();
 	DrawAligned(TopLeft.X + 40.f, TopLeft.Y + 30.f, Size.X - 80.f, IronText::Str(TEXT("MenuMissions"), TEXT("CHOOSE A MISSION")), FLinearColor::Yellow, 2);
 
-	// The list, one row a mission: number and name, the battlefield, the best stars.
+	// The list, one row a mission: number and name, the battlefield, the best stars. Eight rows fit;
+	// with more missions the window scrolls to keep the cursor in view.
 	const float ListX = TopLeft.X + 40.f, ListW = 520.f, RowH = 54.f;
+	const int32 Visible = FMath::Min(IronMissions::Count, 8);
+	const int32 First = FMath::Clamp(Cursor - Visible / 2, 0, IronMissions::Count - Visible);
+	if (First > 0)
+	{
+		DrawAligned(ListX, TopLeft.Y + 76.f, ListW, TEXT("..."), Dim, 0);
+	}
+	if (First + Visible < IronMissions::Count)
+	{
+		DrawAligned(ListX, TopLeft.Y + 100.f + Visible * RowH - 18.f, ListW, TEXT("..."), Dim, 0);
+	}
 	float Y = TopLeft.Y + 100.f;
-	for (int32 i = 0; i < IronMissions::Count; ++i, Y += RowH)
+	for (int32 i = First; i < First + Visible; ++i, Y += RowH)
 	{
 		const bool bOpen = Progress.IsUnlocked(i), bSelected = i == Cursor;
 		if (bSelected)
@@ -360,7 +384,12 @@ void AIronSiegeHUD::DrawMissionSelect(AIronSiegePlayerController* PC)
 			Canvas->DrawItem(Row);
 		}
 		const FLinearColor Color = !bOpen ? FLinearColor(0.35f, 0.35f, 0.38f) : (bSelected ? Gold : FLinearColor::White);
-		const FString Name = bOpen ? IronStory::MissionName(i) : IronText::Str(TEXT("MenuLocked"), TEXT("LOCKED"));
+		FString Name = bOpen ? IronStory::MissionName(i) : IronText::Str(TEXT("MenuLocked"), TEXT("LOCKED"));
+		if (i == IronMissions::ActOneCount)
+		{
+			// Where Act II begins.
+			Name = FString::Printf(TEXT("%s  -  %s"), *IronText::Str(TEXT("MenuActTwo"), TEXT("ACT II")), *Name);
+		}
 		DrawAligned(ListX, Y, ListW - 110.f, FString::Printf(TEXT("%d.  %s"), i + 1, *Name), Color, 1);
 		if (bOpen)
 		{
@@ -396,7 +425,7 @@ void AIronSiegeHUD::DrawMissionSelect(AIronSiegePlayerController* PC)
 		DrawWrapped(IronText::Str(TEXT("MenuLockedHint"), TEXT("Complete the mission before it to unlock this one.")), InfoX, InfoY + 60.f, InfoW, Dim, 0);
 	}
 	const FString Bonus = FString::Printf(TEXT("%s %d/%d   -   %s"), *IronText::Str(TEXT("MenuStars"), TEXT("Stars")), Progress.TotalStars(), IronMissions::Count * 3,
-		*IronText::Str(TEXT("MenuStarBonus"), TEXT("at 8 stars: armor plating   at 16: gun and rocket upgrade")));
+		*IronText::Str(TEXT("MenuStarBonus2"), TEXT("at 8 stars: armor   at 16: gun and rockets   at 24: engine and energy weapons")));
 	DrawTextLine(FVector2D((Canvas->ClipX - MeasureTextLine(Bonus).X) * 0.5f, TopLeft.Y + Size.Y - 86.f), Bonus, Progress.TotalStars() >= 8 ? Good : Dim);
 	const FString Keys = IronText::Str(TEXT("MenuKeys"), TEXT("F3/F4: Choose     Enter: Confirm     F2: Back"));
 	DrawTextLine(FVector2D((Canvas->ClipX - MeasureTextLine(Keys).X) * 0.5f, TopLeft.Y + Size.Y - 50.f), Keys, Dim);
@@ -506,7 +535,14 @@ void AIronSiegeHUD::DrawDriverSelect(AIronSiegePlayerController* PC)
 	DrawAligned(X, Y, W, FString::Printf(TEXT("<  %s  >"), *IronText::Str(*(Stem + TEXT("Name")), ANSI_TO_TCHAR(Def.Name))), Theirs, 2);
 	Y += MeasureTextLine(TEXT("Ag"), 2).Y + 12.f;
 	DrawAligned(X, Y, W, FString::Printf(TEXT("\"%s\""), *IronStory::SpeakerName(Index)), Theirs, 1);
-	Y += MeasureTextLine(TEXT("Ag"), 1).Y + 18.f;
+	Y += MeasureTextLine(TEXT("Ag"), 1).Y + 10.f;
+	// Rank and experience: every match this driver finishes moves the bar.
+	const int32 DriverXp = IronStory::LoadRoster().Xp[Index];
+	const int32 DriverRank = IronRanks::RankFor(DriverXp);
+	DrawAligned(X, Y, W, RankLine(DriverXp), Gold, 0);
+	Y += MeasureTextLine(TEXT("Ag")).Y + 6.f;
+	DrawBar(FVector2D(X, Y), FVector2D(W, 6.f), IronRanks::ProgressToNext(DriverXp), Gold);
+	Y += 20.f;
 	Y = DrawWrapped(IronText::Str(*(Stem + TEXT("Blurb")), ANSI_TO_TCHAR(Def.Blurb)), X, Y, W, FLinearColor::White, 1) + 20.f;
 
 	DrawAligned(X, Y, W, IronText::Str(TEXT("MenuPerk"), TEXT("Perk")), Gold, 1);
@@ -518,7 +554,7 @@ void AIronSiegeHUD::DrawDriverSelect(AIronSiegePlayerController* PC)
 	DrawAligned(X, Y, W, FString::Printf(TEXT("%s [%s]:  %s"), *IronText::Str(TEXT("MenuAbility"), TEXT("Ability")), *Key, *IronText::Name(TEXT("Ability"), ANSI_TO_TCHAR(Def.AbilityName))), Gold, 1);
 	Y += MeasureTextLine(TEXT("Ag"), 1).Y + 8.f;
 	Y = DrawWrapped(IronText::Str(*(Stem + TEXT("Ability")), ANSI_TO_TCHAR(Def.AbilityText)), X, Y, W, Good, 0);
-	DrawAligned(X, Y + 4.f, W, FString::Format(*IronText::Str(TEXT("MenuCooldown"), TEXT("cooldown {0} s")), { FMath::RoundToInt(Def.AbilityCooldown) }), Dim, 0);
+	DrawAligned(X, Y + 4.f, W, FString::Format(*IronText::Str(TEXT("MenuCooldown"), TEXT("cooldown {0} s")), { FMath::RoundToInt(Def.AbilityCooldown * IronRanks::CooldownScale(DriverRank)) }), Dim, 0);
 	if (!bOpen)
 	{
 		DrawAligned(X, Y + 50.f, W, FString::Format(*IronText::Str(TEXT("MenuDriverLocked"), TEXT("Joins after mission {0}")), { Def.UnlockAfter }), Bad, 1);
@@ -612,15 +648,19 @@ void AIronSiegeHUD::DrawMissionResult(const AIronSiegeGameMode* GameMode, const 
 	const bool bWon = GameMode->WasMissionWon();
 	const int32 Index = Director->GetMissionIndex();
 	const IronMissions::Mission& M = Director->GetMission();
-	const FVector2D Size(900.f, 580.f);
-	const FVector2D TopLeft((Canvas->ClipX - Size.X) * 0.5f, (Canvas->ClipY - Size.Y) * 0.5f - 40.f);
+	const FVector2D Size(900.f, 630.f);
+	const FVector2D TopLeft((Canvas->ClipX - Size.X) * 0.5f, (Canvas->ClipY - Size.Y) * 0.5f - 30.f);
 	DrawPanel(TopLeft, Size, 0.86f);
 	const float X = TopLeft.X + 50.f, W = Size.X - 100.f;
 	float Y = TopLeft.Y + 34.f;
 
-	const bool bCampaignDone = bWon && Index + 1 >= IronMissions::Count;
-	const FString Title = bCampaignDone ? IronText::Str(TEXT("MisCampaignDone"), TEXT("THE SIEGE IS BROKEN"))
-		: (bWon ? IronText::Str(TEXT("MisComplete"), TEXT("MISSION COMPLETE")) : IronText::Str(TEXT("MisFailed"), TEXT("MISSION FAILED")));
+	// The last mission of each act closes it with its own title.
+	FString Title = bWon ? IronText::Str(TEXT("MisComplete"), TEXT("MISSION COMPLETE")) : IronText::Str(TEXT("MisFailed"), TEXT("MISSION FAILED"));
+	if (bWon && IronMissions::IsActFinale(Index))
+	{
+		Title = IronMissions::ActOf(Index) == 1 ? IronText::Str(TEXT("MisCampaignDone"), TEXT("THE SIEGE IS BROKEN"))
+			: IronText::Str(TEXT("MisCampaignFinal"), TEXT("THE IRON REMNANT FALLS"));
+	}
 	DrawTextLine(FVector2D((Canvas->ClipX - MeasureTextLine(Title, 2).X) * 0.5f, Y), Title, bWon ? Good : Bad, 2);
 	Y += MeasureTextLine(TEXT("Ag"), 2).Y + 12.f;
 	const FString Name = FString::Printf(TEXT("%s %d: %s"), *IronText::Str(TEXT("MisMission"), TEXT("MISSION")), Index + 1, *IronStory::MissionName(Index));
@@ -646,6 +686,7 @@ void AIronSiegeHUD::DrawMissionResult(const AIronSiegeGameMode* GameMode, const 
 		DrawAligned(X, Y, W, FString::Printf(TEXT("%s:  %s %.0f%%,  %s %d"), *IronText::Str(TEXT("MisStarCare"), TEXT("Health 50% or more, nothing lost")),
 			*IronText::Str(TEXT("MisHealth"), TEXT("Car health")), Director->GetEndHealthFraction() * 100.f, *IronText::Str(TEXT("MisLost"), TEXT("Losses (trucks / relay)")), Director->GetAssetsLost()), bCareful ? Good : Dim);
 		Y += RowH + 8.f;
+		DrawDriverXp(GameMode, X, Y, W);
 		if (Director->IsNewBest())
 		{
 			DrawAligned(X, Y, W, IronText::Str(TEXT("MisNewBest"), TEXT("NEW BEST")), Gold, 1);
@@ -672,6 +713,8 @@ void AIronSiegeHUD::DrawMissionResult(const AIronSiegeGameMode* GameMode, const 
 	else
 	{
 		DrawAligned(X, Y + 20.f, W, Director->GetObjectiveText(), Dim, 1);
+		Y += 20.f + MeasureTextLine(TEXT("Ag"), 1).Y + 24.f;
+		DrawDriverXp(GameMode, X, Y, W);
 	}
 
 	// The choices along the bottom.
@@ -689,4 +732,26 @@ void AIronSiegeHUD::DrawMissionResult(const AIronSiegeGameMode* GameMode, const 
 	}
 	const FString Short = IronText::Str(TEXT("MenuKeysShort"), TEXT("F3/F4: Choose     Enter: Confirm"));
 	DrawTextLine(FVector2D((Canvas->ClipX - MeasureTextLine(Short).X) * 0.5f, TopLeft.Y + Size.Y - 46.f), Short, Dim);
+}
+
+void AIronSiegeHUD::DrawDriverXp(const AIronSiegeGameMode* GameMode, float X, float& Y, float W)
+{
+	const int32 Driver = GameMode ? GameMode->GetPlayerDriver() : -1;
+	if (Driver < 0 || GameMode->GetXpGained() <= 0)
+	{
+		return;
+	}
+	// "RIN KUROSAWA  +290 XP   RANK 3   1240 / 1600 XP", and a rank-up line in the driver's colour.
+	const IronCrew::DriverDef& Def = IronCrew::Get(static_cast<IronCrew::Driver>(Driver));
+	const FString DriverName = IronText::Str(*(FString(TEXT("Driver")) + ANSI_TO_TCHAR(Def.Key) + TEXT("Name")), ANSI_TO_TCHAR(Def.Name));
+	const int32 Xp = IronStory::LoadRoster().Xp[Driver];
+	DrawAligned(X, Y, W, FString::Printf(TEXT("%s  +%d XP     %s"), *DriverName, GameMode->GetXpGained(), *RankLine(Xp)), Gold);
+	Y += MeasureTextLine(TEXT("Ag")).Y + 6.f;
+	DrawBar(FVector2D(X, Y), FVector2D(W, 4.f), IronRanks::ProgressToNext(Xp), Gold);
+	Y += 12.f;
+	if (const int32 Rank = GameMode->GetRankReached(); Rank > 0)
+	{
+		DrawAligned(X, Y, W, FString::Format(*IronText::Str(TEXT("MisRankUp"), TEXT("RANK UP!  Rank {0}: stronger perk, faster ability")), { Rank }), IronStory::SpeakerColor(Driver));
+		Y += MeasureTextLine(TEXT("Ag")).Y + 8.f;
+	}
 }

@@ -12,6 +12,7 @@
 #include "DamageRules.h"
 #include "BeamRules.h"
 #include "CrewRules.h"
+#include "RankRules.h"
 #include "WarVehiclePawn.generated.h"
 
 class UMachineGunComponent;
@@ -162,12 +163,20 @@ public:
 	bool bUnarmed = false;
 
 	// The driver behind the wheel (CrewRules.h): a passive perk, and one ability on a cooldown.
-	// -1 for cars nobody in particular drives (every AI car).
-	void ApplyDriver(int32 InDriverIndex);
+	// -1 for cars nobody in particular drives (every AI car). The driver's rank (RankRules.h)
+	// strengthens the perk and shortens the cooldown.
+	void ApplyDriver(int32 InDriverIndex, int32 InRank = 1);
 	int32 GetDriverIndex() const { return DriverIndex; }
+	int32 GetDriverRank() const { return DriverRank; }
 	bool UseAbility();
 	const IronCrew::AbilityState& GetAbility() const { return Ability; }
-	float GetSupplyGain() const { return DriverIndex >= 0 ? IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)).Passive.SupplyGain : 1.f; }
+	float GetAbilityCooldownScale() const { return IronRanks::CooldownScale(DriverRank); }
+	float GetSupplyGain() const { return GetDriverPerk().SupplyGain; }
+	// The driver's perk at their rank; all ones (no effect) for a car with no driver.
+	IronCrew::Perk GetDriverPerk() const
+	{
+		return DriverIndex >= 0 ? IronRanks::RankedPerk(IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)).Passive, DriverRank) : IronCrew::Perk{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f };
+	}
 
 	// Player settings: FOV, chase distance/height multipliers, camera smoothing (0..1).
 	// bReduceMotion stiffens the camera for players who find the lag uncomfortable.
@@ -343,6 +352,7 @@ private:
 	void SetEngineTorque();
 	void EmpPulse();
 	int32 DriverIndex = -1;
+	int32 DriverRank = 1;
 	IronCrew::AbilityState Ability;
 	bool bAbilityWasActive = false;
 	float AbilityTorqueScale = 1.f;

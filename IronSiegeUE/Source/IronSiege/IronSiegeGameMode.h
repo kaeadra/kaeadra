@@ -49,6 +49,12 @@ public:
 	// Ends the match with the mission won or lost (the director calls this).
 	void EndMission(bool bWon);
 
+	// Driver experience from the match just ended (RankRules.h): who drove, what they earned, and
+	// the rank reached if it went up (0 if not). For the result screens.
+	int32 GetPlayerDriver() const { return PlayerDriver; }
+	int32 GetXpGained() const { return XpGained; }
+	int32 GetRankReached() const { return RankReached; }
+
 	// One enemy of a kind: 0 buggy, 1 raider, 2 missile hunter, 3 tesla stormer, 4 railgun lancer.
 	APawn* SpawnEnemyOfKind(int32 Kind, const FVector& Location, const FRotator& Rotation);
 
@@ -225,6 +231,11 @@ private:
 	TObjectPtr<AIronMissionDirector> Director;
 	// The driver's one-liners on the radio (IronCrew::Bark).
 	void PlayerBark(int32 Kind) const;
+	// Experience for the driver once the match is over (EndMatch).
+	void AwardDriverXp();
+	int32 PlayerDriver = -1;
+	int32 XpGained = 0;
+	int32 RankReached = 0;
 	FTimerHandle MatchStateTimer;
 	FTimerHandle NextWaveTimer;
 };

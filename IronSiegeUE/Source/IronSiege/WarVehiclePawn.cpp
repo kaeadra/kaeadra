@@ -624,7 +624,7 @@ void AWarVehiclePawn::ApplyUpgrades(const IronUpgrades::Loadout& Upgrades)
 	{
 		// The driver's armor perk rides on top of the plating bought in the shop.
 		UpgradeArmorScale = Upgrades.ArmorMultiplier();
-		Health->SetArmorScale(UpgradeArmorScale * (DriverIndex >= 0 ? IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)).Passive.MaxArmor : 1.f));
+		Health->SetArmorScale(UpgradeArmorScale * GetDriverPerk().MaxArmor);
 	}
 	if (PrimaryWeapon)
 	{
@@ -1700,15 +1700,16 @@ void AWarVehiclePawn::TickTurret(float DeltaSeconds)
 
 // ---------------------------------------------------------------- Driver (CrewRules.h)
 
-void AWarVehiclePawn::ApplyDriver(int32 InDriverIndex)
+void AWarVehiclePawn::ApplyDriver(int32 InDriverIndex, int32 InRank)
 {
 	DriverIndex = InDriverIndex >= 0 && InDriverIndex < IronCrew::DriverCount ? InDriverIndex : -1;
+	DriverRank = FMath::Clamp(InRank, 1, IronRanks::MaxRank);
 	Ability = IronCrew::AbilityState();
 	bAbilityWasActive = false;
 	RefreshDriverTraits();
 	if (DriverIndex >= 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("IronSiege: %s driven by %s"), *GetName(), ANSI_TO_TCHAR(IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)).Key));
+		UE_LOG(LogTemp, Log, TEXT("IronSiege: %s driven by %s (rank %d)"), *GetName(), ANSI_TO_TCHAR(IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)).Key), DriverRank);
 	}
 }
 
@@ -1718,7 +1719,7 @@ void AWarVehiclePawn::RefreshDriverTraits()
 	// (the setters replace, they do not stack).
 	const IronVehicles::ClassStats& Stats = IronVehicles::Get(static_cast<IronVehicles::VehicleClass>(VehicleClass));
 	const IronCrew::DriverDef* Def = DriverIndex >= 0 ? &IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex)) : nullptr;
-	const IronCrew::Perk Perk = Def ? Def->Passive : IronCrew::Perk{ 1.f, 1.f, 1.f, 1.f, 1.f, 1.f };
+	const IronCrew::Perk Perk = GetDriverPerk();
 	const IronCrew::AbilityTuning Tuning;
 	const bool bActive = Def && Ability.IsActive();
 	const bool bDeadeye = bActive && Def->Active == IronCrew::Ability::Deadeye;
@@ -1753,7 +1754,7 @@ bool AWarVehiclePawn::UseAbility()
 		return false;
 	}
 	const IronCrew::DriverDef& Def = IronCrew::Get(static_cast<IronCrew::Driver>(DriverIndex));
-	if (!Ability.Activate(Def))
+	if (!Ability.Activate(Def, GetAbilityCooldownScale()))
 	{
 		return false;
 	}

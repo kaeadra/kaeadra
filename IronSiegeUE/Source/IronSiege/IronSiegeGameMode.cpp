@@ -124,10 +124,13 @@ void AIronSiegeGameMode::SpawnSelectedVehicle(AController* Controller, int32 Cla
 	bGameOver = false;
 	bMissionWon = false;
 	LiveEnemies.Reset();
+	PlayerDriver = DriverIndex >= 0 && DriverIndex < IronCrew::DriverCount ? DriverIndex : -1;
+	XpGained = 0;
+	RankReached = 0;
 	AWarVehiclePawn* Car = Cast<AWarVehiclePawn>(PlayerPawn.Get());
 	if (Car)
 	{
-		Car->ApplyDriver(DriverIndex);
+		Car->ApplyDriver(DriverIndex, IronStory::LoadRoster().Rank(DriverIndex));
 	}
 	if (IsMissionMode())
 	{
@@ -574,6 +577,22 @@ void AIronSiegeGameMode::EndMatch()
 		GConfig->Flush(false, GGameIni);
 	}
 	UE_LOG(LogTemp, Log, TEXT("IronSiege: match over - wave %d, kills %d"), Wave, Kills);
+	AwardDriverXp();
+}
+
+void AIronSiegeGameMode::AwardDriverXp()
+{
+	if (PlayerDriver < 0)
+	{
+		return;
+	}
+	const int32 Stars = IsMissionMode() && Director ? Director->GetStars() : 0;
+	XpGained = IronRanks::MatchXp(Kills, Wave, IsMissionMode(), bMissionWon, Stars);
+	IronRanks::Roster Roster = IronStory::LoadRoster();
+	RankReached = Roster.Award(PlayerDriver, XpGained);
+	IronStory::SaveRoster(Roster);
+	UE_LOG(LogTemp, Log, TEXT("IronSiege: driver %d earned %d xp (total %d, rank %d%s)"), PlayerDriver, XpGained, Roster.Xp[PlayerDriver],
+		Roster.Rank(PlayerDriver), RankReached > 0 ? TEXT(", rank up") : TEXT(""));
 }
 
 float AIronSiegeGameMode::GetNextWaveCountdown() const

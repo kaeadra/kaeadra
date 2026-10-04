@@ -1,5 +1,5 @@
 #pragma once
-// Engine-independent story campaign: eight missions across the four battlefields, each a short
+// Engine-independent story campaign: twelve missions in two acts across the four battlefields, each a short
 // sequence of stages with one objective (reach a point, destroy the patrol, burn the depots, escort
 // the trucks, take the jammer sites, hold the relay, survive, stop the convoy, beat the boss), the
 // enemies that come with it, the radio lines, star ratings and the saved progress that unlocks the
@@ -14,7 +14,8 @@
 
 namespace IronMissions
 {
-inline constexpr int Count = 8;
+inline constexpr int Count = 12;
+inline constexpr int ActOneCount = 8; // Act I ends with the siege broken; Act II hunts the Iron Remnant.
 inline constexpr int MaxStages = 3;
 inline constexpr int MaxSpots = 6;
 inline constexpr int MaxLines = 2;
@@ -72,6 +73,8 @@ inline constexpr int StructRelay = 3;     // Our uplink relay (the one to defend
 inline constexpr int BossNone = 0;
 inline constexpr int BossRaven = 1; // Railgun ace in a black sedan.
 inline constexpr int BossBaron = 2; // The Iron Baron's Juggernaut.
+inline constexpr int BossCrown = 3; // Varga's rebuilt Juggernaut, the Iron Crown (Act II finale).
+inline constexpr int BossCount = 4;
 
 struct Stage
 {
@@ -359,6 +362,126 @@ inline Mission BreakTheSiege()
 	Outro(M, SpeakerHana, MoodHappy, "M8Out1", "It is over. The road to Marsa is open. Welcome home, Siege Breaker.");
 	return M;
 }
+
+// ---- Act II: the Iron Remnant
+
+inline Mission Aftershock()
+{
+	Mission M;
+	M.Key = "M9";
+	M.Name = "AFTERSHOCK";
+	M.Map = "Desert";
+	M.ParSeconds = 330.f;
+	M.Start = { -.6f, -.6f };
+	Brief(M, "M9Brief0", "Three weeks of peace. Then a scout found the Juggernaut's wreck in the dunes - and nobody inside it.",
+		"M9Brief1", "Varga is alive. His loyalists call themselves the Iron Remnant, and they are stripping the old depots bare.",
+		"M9Brief2", "Check the crash site, break the scavengers, and burn what they have gathered before it rolls north.");
+	Stage& A = M.Stages[M.NumStages++] = MakeStage(Objective::Reach, "M9Obj0", "Reach the crash site", 1, 0.f);
+	Spots(A, { { .55f, .5f }, { -.5f, .55f } });
+	Waves(A, { 2 }, { 1, 1 }, 18.f, 4);
+	Say(A, SpeakerHana, MoodNeutral, "M9S0L0", "Crash site is marked. Eyes open, Breaker - the sand has been driven over recently.");
+	Stage& B = M.Stages[M.NumStages++] = MakeStage(Objective::Eliminate, "M9Obj1", "Destroy the Remnant scavengers", 7, 0.f);
+	Waves(B, { 2, 2, 1, 0, 1 }, { 1, 1, 1 }, 14.f, 6);
+	Say(B, SpeakerHana, MoodAngry, "M9S1L0", "Contacts all round you! Remnant colours - they were waiting.");
+	Say(B, SpeakerRaven, MoodNeutral, "M9S1L1", "Hana. It's Raven. Don't cut me off - you want to hear what I know about Varga.");
+	Stage& C = M.Stages[M.NumStages++] = MakeStage(Objective::DestroyTargets, "M9Obj2", "Burn the Remnant stockpiles", 2, 0.f);
+	Spots(C, { { .4f, -.35f }, { -.35f, -.4f } });
+	Waves(C, { 2, 1, 1 }, { 1, 1 }, 18.f, 6);
+	C.bGuardSpots = true;
+	Say(C, SpeakerRaven, MoodNeutral, "M9S2L0", "Two stockpiles south of you. Varga needs that fuel more than he needs soldiers.");
+	Outro(M, SpeakerHana, MoodNeutral, "M9Out0", "Stockpiles burning. Raven... if this is a trap, I will find you myself.");
+	Outro(M, SpeakerRaven, MoodHappy, "M9Out1", "If it were a trap, you would already be in it.");
+	return M;
+}
+
+inline Mission BrokenChains()
+{
+	Mission M;
+	M.Key = "M10";
+	M.Name = "BROKEN CHAINS";
+	M.Map = "Coast";
+	M.ParSeconds = 330.f;
+	M.Start = { -.6f, .6f };
+	Brief(M, "M10Brief0", "The Remnant took prisoners from the harbour villages. Raven says they are held in the container yard.",
+		"M10Brief1", "We have three trucks to bring them out. At least two must reach the gate.",
+		"M10Brief2", "Then hold the yard's relay while the evacuation boats load. Do not let them cut our signal.");
+	Stage& A = M.Stages[M.NumStages++] = MakeStage(Objective::Escort, "M10Obj0", "Escort the prisoner trucks to the gate", 3, 0.f);
+	A.Need = 2;
+	// The same band round the container yard as the medicine run (HarborRun).
+	Spots(A, { { -.78f, .3f }, { -.78f, -.78f }, { .78f, -.78f }, { .78f, .6f } });
+	Waves(A, { 3, 1 }, { 2, 1, 0, 1 }, 13.f, 7);
+	A.AssetShare = .6f;
+	Say(A, SpeakerHana, MoodNeutral, "M10S0L0", "Trucks are rolling with the prisoners aboard. Keep the Remnant off them.");
+	Stage& B = M.Stages[M.NumStages++] = MakeStage(Objective::Defend, "M10Obj1", "Defend the relay while the boats load", 1, 75.f);
+	Spots(B, { { .137f, .137f } });
+	B.Structure = StructRelay;
+	Waves(B, { 3, 2 }, { 2, 1, 0, 0, 1 }, 14.f, 7);
+	B.AssetShare = .6f;
+	Say(B, SpeakerHana, MoodAngry, "M10S1L0", "Boats are loading. Seventy-five seconds - hold that relay!");
+	Say(B, SpeakerRaven, MoodAngry, "M10S1L1", "Lancers on the cranes. They are aiming at your relay, not at you.");
+	Outro(M, SpeakerHana, MoodHappy, "M10Out0", "Every prisoner is aboard. The harbour will remember who came for them.");
+	Outro(M, SpeakerRaven, MoodNeutral, "M10Out1", "Varga's next move is the power grid. He means to black out Marsa.");
+	return M;
+}
+
+inline Mission Blackout()
+{
+	Mission M;
+	M.Key = "M11";
+	M.Name = "BLACKOUT";
+	M.Map = "CityRuins";
+	M.ParSeconds = 360.f;
+	M.Start = { -.7f, 0.f };
+	Brief(M, "M11Brief0", "Varga's engineers have rigged Marsa's power substations. If they throw the switch, the city goes dark for the winter.",
+		"M11Brief1", "Take the three substations and hold each one until our engineers lock it out.",
+		"M11Brief2", "Then survive whatever he sends to take them back. Raven will call out the lancers.");
+	Stage& A = M.Stages[M.NumStages++] = MakeStage(Objective::Capture, "M11Obj0", "Secure the substations", 3, 0.f);
+	// The avenue's two junctions with the cross streets, and the stretch between them.
+	Spots(A, { { .337f, 0.f }, { 0.f, 0.f }, { -.316f, 0.f } });
+	Waves(A, { 3, 1, 1 }, { 1, 1, 1, 0, 1 }, 16.f, 7);
+	A.bGuardSpots = true;
+	Say(A, SpeakerHana, MoodNeutral, "M11S0L0", "Three substations on the avenue. Park inside each ring and hold it.");
+	Stage& B = M.Stages[M.NumStages++] = MakeStage(Objective::Survive, "M11Obj1", "Hold the district until the grid is locked", 1, 90.f);
+	Waves(B, { 2, 2, 1, 1, 2 }, { 1, 1, 1, 1, 1 }, 14.f, 8);
+	Say(B, SpeakerRaven, MoodAngry, "M11S1L0", "Here comes everything he has left in the city. Keep moving or they will pin you.");
+	Say(B, SpeakerHana, MoodAngry, "M11S1L1", "Ninety seconds, Breaker. Then Marsa keeps its lights.");
+	Outro(M, SpeakerHana, MoodHappy, "M11Out0", "Grid is locked. Marsa will have light this winter.");
+	Outro(M, SpeakerVarga, MoodAngry, "M11Out1", "You took my siege, and now my city. Come north, Breaker. I will be waiting.");
+	return M;
+}
+
+inline Mission IronCrown()
+{
+	Mission M;
+	M.Key = "M12";
+	M.Name = "IRON CROWN";
+	M.Map = "Arctic";
+	M.ParSeconds = 480.f;
+	M.Start = { -.6f, -.6f };
+	Brief(M, "M12Brief0", "Varga has rebuilt the Juggernaut in his last fortress on the ice. He calls it the Iron Crown.",
+		"M12Brief1", "Stop his fuel convoy, break the three shield generators, and he will have to face you himself.",
+		"M12Brief2", "This ends today. Everyone is with you, Breaker - even Raven.");
+	Stage& A = M.Stages[M.NumStages++] = MakeStage(Objective::Intercept, "M12Obj0", "Stop the fuel convoy", 3, 0.f);
+	A.Need = 2;
+	// The route round the lake the control cores took (ColdTrail).
+	Spots(A, { { -.5f, -.78f }, { .78f, -.78f }, { .78f, .78f }, { -.78f, .78f }, { -.78f, -.2f } });
+	Waves(A, { 2, 2, 0, 1, 1 }, { 1, 1, 0, 0, 1 }, 18.f, 6);
+	Say(A, SpeakerHana, MoodAngry, "M12S0L0", "Fuel trucks on the lake. Stop them before they reach the fortress.");
+	Stage& B = M.Stages[M.NumStages++] = MakeStage(Objective::DestroyTargets, "M12Obj1", "Destroy the shield generators", 3, 0.f);
+	Spots(B, { { 0.f, .5f }, { -.45f, -.3f }, { .45f, -.3f } });
+	B.Structure = StructGenerator;
+	Waves(B, { 3, 1, 1, 1, 1 }, { 2, 1, 1 }, 16.f, 7);
+	B.bGuardSpots = true;
+	Say(B, SpeakerRaven, MoodNeutral, "M12S1L0", "His best guard the generators. I taught half of them to shoot - they lead their targets, so swerve late.");
+	Stage& C = M.Stages[M.NumStages++] = MakeStage(Objective::Boss, "M12Obj2", "Destroy the Iron Crown", 1, 0.f);
+	Waves(C, {}, { 1, 1, 1, 0, 1 }, 20.f, 6);
+	C.Boss = BossCrown;
+	Say(C, SpeakerVarga, MoodAngry, "M12S2L0", "This machine was built to end you. Kneel!");
+	Say(C, SpeakerHana, MoodAngry, "M12S2L1", "That is the Iron Crown. Same weak points, far more armour. Hit it with everything!");
+	Outro(M, SpeakerVarga, MoodAngry, "M12Out0", "No... the iron... was meant to hold...");
+	Outro(M, SpeakerHana, MoodHappy, "M12Out1", "It is finished. The Remnant is broken and Marsa is free. Thank you, Siege Breaker.");
+	return M;
+}
 }
 
 inline const Mission& Get(int Index)
@@ -366,6 +489,7 @@ inline const Mission& Get(int Index)
 	static const Mission Table[Count] = {
 		Detail::FirstSortie(), Detail::FuelLines(), Detail::HarborRun(), Detail::DeadAir(),
 		Detail::StreetByStreet(), Detail::RavenDuel(), Detail::ColdTrail(), Detail::BreakTheSiege(),
+		Detail::Aftershock(), Detail::BrokenChains(), Detail::Blackout(), Detail::IronCrown(),
 	};
 	return Table[Index >= 0 && Index < Count ? Index : 0];
 }
@@ -381,12 +505,13 @@ struct BossDef
 
 inline const BossDef& GetBoss(int Boss)
 {
-	static const BossDef Defs[3] = {
+	static const BossDef Defs[BossCount] = {
 		{ "BossNone", "", 1.f },
 		{ "BossRaven", "RAVEN", 3.f },
 		{ "BossBaron", "THE IRON BARON", 5.f },
+		{ "BossCrown", "THE IRON CROWN", 6.5f },
 	};
-	return Defs[Boss >= 0 && Boss < 3 ? Boss : 0];
+	return Defs[Boss >= 0 && Boss < BossCount ? Boss : 0];
 }
 
 struct ConvoyTuning
@@ -588,13 +713,18 @@ struct Progress
 	}
 };
 
+// Act I is missions 1-8, Act II 9-12; the last mission of each act closes it with its own title.
+inline int ActOf(int MissionIndex) { return MissionIndex >= ActOneCount ? 2 : 1; }
+inline bool IsActFinale(int MissionIndex) { return MissionIndex == ActOneCount - 1 || MissionIndex == Count - 1; }
+
 inline bool IsDriverUnlocked(const Progress& P, IronCrew::Driver D)
 {
 	return P.Completed() >= IronCrew::Get(D).UnlockAfter;
 }
 
 // The car the campaign hands out: weapons arrive mission by mission (there is no shop between
-// stages), and stars buy a little extra - one level of armor at 8 stars, one of each gun at 16.
+// stages), and stars buy a little extra - one level of armor at 8 stars, one of each gun at 16,
+// engine and energy weapons at 24.
 inline IronUpgrades::Loadout LoadoutFor(int MissionIndex, int TotalStars)
 {
 	using IronUpgrades::Upgrade;
@@ -612,11 +742,20 @@ inline IronUpgrades::Loadout LoadoutFor(int MissionIndex, int TotalStars)
 	if (MissionIndex >= 5) Set(Upgrade::Railgun, 1);
 	if (MissionIndex >= 6) { Set(Upgrade::Tesla, 1); Set(Upgrade::Engine, 1); }
 	if (MissionIndex >= 7) { Set(Upgrade::Armor, 2); Set(Upgrade::MachineGun, 2); Set(Upgrade::Rockets, 2); Set(Upgrade::Mines, 2); }
+	// Act II: the Remnant fields its best, and so do we.
+	if (MissionIndex >= 8) { Set(Upgrade::Flamer, 2); Set(Upgrade::Railgun, 2); Set(Upgrade::Tesla, 2); Set(Upgrade::Engine, 2); }
+	if (MissionIndex >= 10) { Set(Upgrade::Armor, 3); Set(Upgrade::MachineGun, 3); Set(Upgrade::Rockets, 3); Set(Upgrade::Mines, 3); }
 	if (TotalStars >= 8) Set(Upgrade::Armor, L.Level(Upgrade::Armor) + 1);
 	if (TotalStars >= 16)
 	{
 		Set(Upgrade::MachineGun, L.Level(Upgrade::MachineGun) + 1);
 		Set(Upgrade::Rockets, L.Level(Upgrade::Rockets) + 1);
+	}
+	if (TotalStars >= 24)
+	{
+		Set(Upgrade::Engine, L.Level(Upgrade::Engine) + 1);
+		Set(Upgrade::Railgun, L.Level(Upgrade::Railgun) + 1);
+		Set(Upgrade::Tesla, L.Level(Upgrade::Tesla) + 1);
 	}
 	return L;
 }

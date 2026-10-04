@@ -132,12 +132,13 @@ struct AbilityState
 	bool IsReady() const { return CooldownLeft <= 0.f; }
 	bool IsActive() const { return ActiveLeft > 0.f; }
 
-	// True if the ability fired (the caller then applies its instant effect).
-	bool Activate(const DriverDef& D)
+	// True if the ability fired (the caller then applies its instant effect). CooldownScale shortens
+	// the wait for a driver of higher rank (IronRanks::CooldownScale).
+	bool Activate(const DriverDef& D, float CooldownScale = 1.f)
 	{
 		if (!IsReady()) return false;
 		ActiveLeft = D.AbilitySeconds;
-		CooldownLeft = D.AbilityCooldown;
+		CooldownLeft = D.AbilityCooldown * CooldownScale;
 		return true;
 	}
 
@@ -147,11 +148,12 @@ struct AbilityState
 		CooldownLeft = CooldownLeft > DeltaSeconds ? CooldownLeft - DeltaSeconds : 0.f;
 	}
 
-	// 0 just fired .. 1 ready, for the HUD meter.
-	float ReadyFraction(const DriverDef& D) const
+	// 0 just fired .. 1 ready, for the HUD meter (same CooldownScale as Activate).
+	float ReadyFraction(const DriverDef& D, float CooldownScale = 1.f) const
 	{
-		if (D.AbilityCooldown <= 0.f) return 1.f;
-		const float F = 1.f - CooldownLeft / D.AbilityCooldown;
+		const float Cooldown = D.AbilityCooldown * CooldownScale;
+		if (Cooldown <= 0.f) return 1.f;
+		const float F = 1.f - CooldownLeft / Cooldown;
 		return F < 0.f ? 0.f : (F > 1.f ? 1.f : F);
 	}
 };

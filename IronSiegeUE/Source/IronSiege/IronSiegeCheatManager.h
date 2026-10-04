@@ -275,6 +275,10 @@ public:
 	UFUNCTION(Exec)
 	void DebugCampaign(const FString& Action, int32 Stars);
 
+	// Sets a driver's saved experience (0-5 the drivers; -1 every driver), to see the ranks.
+	UFUNCTION(Exec)
+	void DebugDriverXp(int32 Driver, int32 Xp);
+
 	// Puts a story line on the radio as Speaker (0-5 the drivers, 6 Hana, 7 Raven, 8 Varga), to
 	// check the radio box and that speaker's portrait.
 	UFUNCTION(Exec)
