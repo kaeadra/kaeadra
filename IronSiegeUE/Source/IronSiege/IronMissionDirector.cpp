@@ -517,6 +517,12 @@ void AIronMissionDirector::Tick(float DeltaSeconds)
 		}
 		return;
 	}
+	// The player's car is down: the game mode fails the mission on its next check (NotifyPlayerDestroyed).
+	// Until then nothing may complete - a ram that kills the last enemy and the player together is a loss.
+	if (!IronTeams::IsAlive(PlayerPawn.Get()))
+	{
+		return;
+	}
 	Elapsed += DeltaSeconds;
 	PollObjective();
 	const IronMissions::Stage& S = GetStage();

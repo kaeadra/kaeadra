@@ -4,7 +4,7 @@
 // throws out during a fight. No Unreal includes on purpose: covered offline by
 // Tests/crew_rules_test.cpp.
 //
-// Text here is the English source; the Arabic lives in IronSiegeStoryText.cpp under the same keys.
+// Text here is the English source; the Arabic lives in IronSiegeStory.cpp under the same keys.
 // A character's Key is also its portrait file name (Content/IronSiege/Characters/<Key>.png).
 
 namespace IronCrew

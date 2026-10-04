@@ -1341,6 +1341,13 @@ void AWarVehiclePawn::Stun(float Seconds)
 void AWarVehiclePawn::TickEnergyWeapons(float DeltaSeconds)
 {
 	// Railgun: the slug leaves once the charge completes, along wherever the car aims by then.
+	// A car destroyed mid-charge drops it: a wreck does not fire.
+	if (Railgun && RailCharge.IsCharging() && Health && Health->IsDestroyed())
+	{
+		RailCharge = IronBeams::ChargeClock();
+		bRailAimFixed = false;
+		Railgun->SetChargeProgress(0.f);
+	}
 	if (Railgun && RailCharge.IsCharging())
 	{
 		if (RailCharge.Tick(DeltaSeconds))

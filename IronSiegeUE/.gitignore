@@ -1,0 +1,11 @@
+# Unreal build output and caches - regenerated on every machine, never committed.
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+*.suo

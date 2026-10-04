@@ -147,7 +147,10 @@ void AIronSiegePlayerController::SetupInputComponent()
 		}
 		if (FirePrimaryAction)
 		{
-			EnhancedInput->BindAction(FirePrimaryAction, ETriggerEvent::Started, this, &AIronSiegePlayerController::OnFirePrimary);
+			// Triggered, not Started: the machine gun is automatic (IronWeapons::Spec), so it fires for
+			// as long as the trigger is held, paced by its own fire interval and stopped by the heat
+			// lockout. Bound to Started it fired one round per press and the heat/spin-up never came in.
+			EnhancedInput->BindAction(FirePrimaryAction, ETriggerEvent::Triggered, this, &AIronSiegePlayerController::OnFirePrimary);
 		}
 		if (FireSecondaryAction)
 		{

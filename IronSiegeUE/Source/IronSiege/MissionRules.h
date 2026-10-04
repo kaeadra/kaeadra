@@ -6,7 +6,7 @@
 // next mission, new drivers and new weapons. No Unreal includes on purpose: covered offline by
 // Tests/mission_rules_test.cpp. AIronMissionDirector plays these out in the game.
 //
-// Text here is the English source; the Arabic lives in IronSiegeStoryText.cpp under the same keys.
+// Text here is the English source; the Arabic lives in IronSiegeStory.cpp under the same keys.
 
 #include "CrewRules.h"
 #include "UpgradeRules.h"
