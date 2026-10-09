@@ -1,0 +1,21 @@
+# Unreal build output and caches - regenerated on every machine, never committed.
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# Content is large and binary: it stays on the PC that has the editor. The editor scripts are
+# text and shared, and so are the character portraits (small PNGs the code reads from disk).
+Content/*
+!Content/Python/
+!Content/IronSiege/
+Content/IronSiege/*
+!Content/IronSiege/Characters/
