@@ -17,7 +17,7 @@ Status: `todo` · `taking: <session>` · `needs build` · `needs play-test` · `
 
 | Task | Status | Owner |
 |---|---|---|
-| Boss fights with phases and signature attacks | todo | |
+| Boss fights with phases and signature attacks | taking: cloud `session_018pYbz3pUwGwawu7qyYT8Sd` | cloud |
 | Smarter enemy AI (flanking, focus fire, retreat to repair) | todo | |
 | Story scenes between missions (portraits + dialogue) | todo | |
 | New modes: combat race, daily challenges | todo | |
