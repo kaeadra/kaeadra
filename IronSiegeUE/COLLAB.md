@@ -18,7 +18,7 @@ Status: `todo` · `taking: <session>` · `needs build` · `needs play-test` · `
 
 | Task | Status | Owner |
 |---|---|---|
-| Smarter enemy AI (flanking, focus fire, retreat to repair) | todo | |
+| Smarter enemy AI (flanking, focus fire, retreat to repair) | taking: cloud `session_018pYbz3pUwGwawu7qyYT8Sd` | cloud |
 | Story scenes between missions (portraits + dialogue) | todo | |
 | New modes: combat race, daily challenges | todo | |
 | Disable the stray plugins in `IronSiege.uproject` (Adjust, APVDecoderElectra, AESHandlerComponent, AESGCMHandlerComponent, ActorPalette, ActorModifier, ActorModifierCore, AccumulationDOF) - check nothing uses them | todo | local |
