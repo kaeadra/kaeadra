@@ -3,6 +3,7 @@
 #include "AIController.h"
 #include "AIRules.h"
 #include "RouteRules.h"
+#include "TacticsRules.h"
 #include "IronSiegeAIController.generated.h"
 
 class IIronVehicle;
@@ -112,6 +113,30 @@ private:
 	// Front (+1) or rear (-1) bumper about to hit something, or past the kerb of the carriageway.
 	bool IsBumperBlocked(APawn* MyPawn, float Direction) const;
 
+	// Squad tactics (TacticsRules.h): the target's own velocity (for intercepting it), this car's
+	// lane in the squad coming at the same target, whether it sits in the player's sights, the
+	// wingmen that may block its shot, and falling back to repair when badly hurt.
+	void TickTactics(float DeltaSeconds, APawn* MyPawn, AActor* Target, IIronVehicle* Vehicle);
+	void RefreshSquad(APawn* MyPawn, AActor* Target);
+	FVector TacticalGoal(APawn* MyPawn, AActor* Target, float Distance, float SpeedKph) const;
+	bool IsShotBlocked(APawn* MyPawn, AActor* Target) const;
+	void AnnounceRetreat(APawn* MyPawn) const;
+	IronTactics::Morale Morale;
+	TWeakObjectPtr<AActor> TrackedTarget;
+	FVector TrackedPrevious = FVector::ZeroVector;
+	FVector TargetVelocity = FVector::ZeroVector;
+	TArray<TWeakObjectPtr<APawn>> Wingmen;
+	float Lane = 0.f;
+	float SquadTimer = 0.f;
+	float LaneOverride = 0.f;       // Side to swing out to while a wingman blocks the shot...
+	float LaneOverrideLeft = 0.f;   // ...for this long.
+	float BlockedSeconds = 0.f;
+	float ParkedInSightsSeconds = 0.f;
+	float OffLineSeconds = 0.f;     // Parked with the nose off the target (it can only turn while moving).
+	float WeaveClock = 0.f;
+	float WeavePhase = -1.f;
+	bool bInPlayerSights = false;
+
 public:
 	// Testing: "wp 3/7 (x, y) avoid 1" - where the car is heading on its route.
 	FString DescribeRoute() const
@@ -125,4 +150,12 @@ public:
 
 	// Testing: street routing on/off for every AI car (to compare against the old straight chase).
 	static bool bStreetRoutingEnabled;
+
+	// Testing: squad tactics on/off for every AI car (UIronSiegeCheatManager::DebugTactics), to
+	// compare against the plain chase.
+	static bool bTacticsEnabled;
+
+	// Falling back or patching up (the HUD marks a car that is patching), rather than fighting.
+	bool IsFallingBack() const { return Morale.State != IronTactics::Mode::Engage; }
+	bool IsPatching() const { return Morale.State == IronTactics::Mode::Patch; }
 };

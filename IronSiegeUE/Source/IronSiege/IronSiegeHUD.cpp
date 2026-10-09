@@ -31,6 +31,7 @@
 #include "IronMissionDirector.h"
 #include "IronTeams.h"
 #include "IronBossComponent.h"
+#include "IronSiegeAIController.h"
 
 void AIronSiegeHUD::DrawHUD()
 {
@@ -561,6 +562,13 @@ void AIronSiegeHUD::DrawEnemyHealthBars()
 		Canvas->DrawItem(Bar);
 		FCanvasTileItem Armor(TopLeft + FVector2D(0.f, H + 1.f), FVector2D(W * ArmorFrac, 2.f), FLinearColor(0.35f, 0.65f, 1.f));
 		Canvas->DrawItem(Armor);
+		// A car patching itself up after falling back: the moment to finish it.
+		if (const AIronSiegeAIController* AI = Cast<AIronSiegeAIController>(Other->GetController()); AI && AI->IsPatching())
+		{
+			const FString Label = IronText::Str(TEXT("HudRepairing"), TEXT("REPAIRING"));
+			const FVector2D LabelSize = MeasureTextLine(Label);
+			DrawTextLine(FVector2D(Screen.X - LabelSize.X * 0.5f, TopLeft.Y - LabelSize.Y - 3.f), Label, WarningColor);
+		}
 	}
 }
 

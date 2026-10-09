@@ -45,7 +45,7 @@ g++ -std=c++20 -Wall -Wextra -DPI=3.14159f -I../Source/IronSiege boss_rules_test
 `-DPI=...` stands in for Unreal's `PI` macro: a rules header that names anything `PI` builds offline
 but breaks the Unreal build, and this catches it.
 Useful console commands in a development build: `DebugCampaign unlock 3`, `DebugDriverXp -1 3000`,
-`DebugSpawnBoss 3 4000`, `DebugBossHealth 0.3`, and the other `Debug*` commands in `IronSiegeCheatManager.h`.
+`DebugSpawnBoss 3 4000`, `DebugBossHealth 0.3`, `DebugTactics 0|1`, and the other `Debug*` commands in `IronSiegeCheatManager.h`.
 
 ## Code conventions
 
@@ -56,4 +56,5 @@ Useful console commands in a development build: `DebugCampaign unlock 3`, `Debug
   `IronSiegeText.cpp` (UI) or `IronSiegeStory.cpp` (campaign, crew, story screens).
 - The HUD is Canvas-drawn (`IronSiegeHUD*.cpp`), menus are Slate (`SIronSettingsMenu.cpp`).
 - Campaign data: `MissionRules.h`; drivers, barks: `CrewRules.h`; ranks: `RankRules.h`;
-  boss phases and attacks: `BossRules.h` (applied by `UIronBossComponent`).
+  boss phases and attacks: `BossRules.h` (applied by `UIronBossComponent`); enemy driving:
+  `AIRules.h` and squad tactics `TacticsRules.h` (applied by `AIronSiegeAIController`).

@@ -198,6 +198,11 @@ public:
 	UFUNCTION(Exec)
 	void DebugStreetRouting(int32 bEnabled);
 
+	// Enemy squad tactics on/off (intercept, pincer lanes, weaving, fire discipline, falling back
+	// to repair), to compare against the plain chase.
+	UFUNCTION(Exec)
+	void DebugTactics(int32 bEnabled);
+
 	UFUNCTION(Exec)
 	void DebugTeleport(float X, float Y, float Yaw);
 

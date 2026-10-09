@@ -13,12 +13,18 @@
 #include "MissionRules.h"
 #include "WheeledVehiclePawn.h"
 #include "ChaosVehicleMovementComponent.h"
+#include "VehicleHealthComponent.h"
+#include "IronSiegeHUD.h"
+#include "IronSiegeText.h"
+#include "GameFramework/PlayerController.h"
 
 bool AIronSiegeAIController::bStreetRoutingEnabled = true;
+bool AIronSiegeAIController::bTacticsEnabled = true;
 
 namespace
 {
 IronRoute::Vec2 To2D(const FVector& V) { return { float(V.X), float(V.Y) }; }
+IronTactics::Vec2 ToTactics(const FVector& V) { return { float(V.X), float(V.Y) }; }
 }
 
 AIronSiegeAIController::AIronSiegeAIController()
@@ -178,12 +184,39 @@ void AIronSiegeAIController::Tick(float DeltaSeconds)
 	const FVector ToTargetDir = ToTarget.GetSafeNormal();
 	const FVector Forward = MyPawn->GetActorForwardVector();
 
+	// Squad tactics first: they decide whether this car is in the fight at all right now.
+	TickTactics(DeltaSeconds, MyPawn, Target, Vehicle);
+	const bool bRetreating = Morale.State == IronTactics::Mode::Retreat;
+	const bool bPatching = Morale.State == IronTactics::Mode::Patch;
+
 	// Weapons aim at the player; the wheels head for the next street waypoint while a building is
 	// in the way, otherwise straight for the player too.
 	UpdateRoute(MyPawn, Target, DeltaSeconds);
+	if (bRetreating || bPatching)
+	{
+		// The street route leads to the player: not the way a car falling back wants to go.
+		bFollowingRoute = false;
+	}
 	FVector Goal = Target->GetActorLocation();
 	float DriveDistance = Distance;
 	bool bWeaving = false;
+	if (bRetreating)
+	{
+		// Falling back: flat out, straight away from the target.
+		const FVector Away = (MyPawn->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal2D();
+		Goal = MyPawn->GetActorLocation() + (Away.IsNearlyZero() ? Forward : Away) * 3000.f;
+		DriveDistance = StoppingDistance + 5000.f;
+	}
+	else if (bPatching)
+	{
+		// Patching up where it stopped.
+		DriveDistance = 0.f;
+	}
+	else if (bTacticsEnabled && !bFollowingRoute)
+	{
+		// Cut the target off rather than tail-chase it, down this car's own lane of the squad.
+		Goal = TacticalGoal(MyPawn, Target, Distance, Vehicle->GetSpeedKph());
+	}
 	if (bFollowingRoute && Route.Count > 0)
 	{
 		// The carrot on the road's centre line, moved sideways round any wreck or barricade between
@@ -257,6 +290,11 @@ void AIronSiegeAIController::Tick(float DeltaSeconds)
 			const float Degrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(GoalDot, -1.f, 1.f))) * SteerSign;
 			ChaseSteer = IronRoute::SteerForAngle(Degrees);
 		}
+		// In the player's sights on the way in: swerve, so their gun has to chase it.
+		if (bTacticsEnabled && !bFollowingRoute && !bPatching && Distance > StoppingDistance + 400.f && IronTactics::ShouldWeave(bInPlayerSights, Distance))
+		{
+			ChaseSteer = FMath::Clamp(ChaseSteer + IronTactics::WeaveSteer(WeaveClock, WeavePhase), -1.f, 1.f);
+		}
 		Vehicle->Steer(AvoidSteer != 0.f ? AvoidSteer : ChaseSteer);
 
 		// Speed-managed approach (AIRules.h): fast from afar, slowing as the gap closes and braking
@@ -277,6 +315,12 @@ void AIronSiegeAIController::Tick(float DeltaSeconds)
 			// turning at the junction overshoots onto the far pavement).
 			DesiredKph = FMath::Min(DesiredKph, IronRoute::RouteSpeedLimitKph(Route, RouteIndex, To2D(MyPawn->GetActorLocation()), DesiredKph));
 		}
+		if (LaneOverrideLeft > 0.f && !bFollowingRoute && !bRetreating && !bPatching && Distance > 800.f)
+		{
+			// Stepping aside to clear a wingman out of the line of fire takes a little speed, even at
+			// the stand-off (not right up against the target, where it would only nudge into it).
+			DesiredKph = FMath::Max(DesiredKph, 20.f);
+		}
 		const float SpeedKph = Vehicle->GetSpeedKph();
 		Vehicle->MoveForward(IronAI::ThrottleFor(SpeedKph, DesiredKph, Tuning));
 
@@ -288,10 +332,24 @@ void AIronSiegeAIController::Tick(float DeltaSeconds)
 		// Parked at its stand-off but not lined up on a structure: the player drives into a stopped
 		// car's sights sooner or later, a relay never does. Same manoeuvre: back off on opposite lock
 		// and come in again.
-		else if (DesiredKph <= 0.f && SpeedKph < 3.f && FacingDot < FireAimDotThreshold && !Target->IsA<APawn>())
+		else if (!bPatching && DesiredKph <= 0.f && SpeedKph < 3.f && FacingDot < FireAimDotThreshold && !Target->IsA<APawn>())
 		{
 			ReverseTimeLeft = ReverseSeconds;
 			ReverseSteer = -SteerSign;
+		}
+
+		// Parked with the nose off the player (a car only turns while it moves): after a moment,
+		// the same manoeuvre to bring it round, instead of waiting for the player to drive into view.
+		const bool bParked = DesiredKph <= 0.f && SpeedKph < 3.f && !bPatching && bTacticsEnabled;
+		OffLineSeconds = bParked && Target->IsA<APawn>() && FacingDot < FireAimDotThreshold ? OffLineSeconds + DeltaSeconds : 0.f;
+		// Parked square in front of the player's gun: back off on a random lock and come in again,
+		// rather than sit there and be shot.
+		ParkedInSightsSeconds = bParked && bInPlayerSights ? ParkedInSightsSeconds + DeltaSeconds : 0.f;
+		if (ReverseTimeLeft <= 0.f && (OffLineSeconds > 1.5f || ParkedInSightsSeconds > IronTactics::Tuning().ParkedInSightsSeconds))
+		{
+			ReverseTimeLeft = ReverseSeconds;
+			ReverseSteer = OffLineSeconds > 1.5f ? -SteerSign : (FMath::RandBool() ? 1.f : -1.f);
+			OffLineSeconds = ParkedInSightsSeconds = 0.f;
 		}
 	}
 
@@ -305,7 +363,18 @@ void AIronSiegeAIController::Tick(float DeltaSeconds)
 
 	const bool bInBurst = Burst.Update(DeltaSeconds, BurstSeconds, BurstPauseSeconds);
 
-	if (bInBurst && Distance <= FireRange && FacingDot >= FireAimDotThreshold)
+	// A wingman between this car and the target: hold fire, and if it keeps happening, swing out to
+	// a side lane to clear the line. A car falling back does not stop to shoot.
+	const bool bLinedUp = bInBurst && Distance <= FireRange && FacingDot >= FireAimDotThreshold && !bRetreating;
+	const bool bBlocked = bLinedUp && bTacticsEnabled && IsShotBlocked(MyPawn, Target);
+	BlockedSeconds = bBlocked ? BlockedSeconds + DeltaSeconds : FMath::Max(0.f, BlockedSeconds - DeltaSeconds);
+	if (BlockedSeconds > 1.f && LaneOverrideLeft <= 0.f)
+	{
+		BlockedSeconds = 0.f;
+		LaneOverride = Lane < 0.f ? -1.f : (Lane > 0.f ? 1.f : (FMath::RandBool() ? 1.f : -1.f));
+		LaneOverrideLeft = IronTactics::Tuning().BlockedLaneSeconds;
+	}
+	if (bLinedUp && !bBlocked)
 	{
 		// Aim at the target with a random cone of error so the AI is beatable, not a laser.
 		const FVector Spread = FMath::VRandCone(ToTargetDir, FMath::DegreesToRadians(AimSpreadDeg));
@@ -468,4 +537,168 @@ bool AIronSiegeAIController::IsBumperBlocked(APawn* MyPawn, float Direction) con
 	FHitResult Hit;
 	const FVector Up(0.f, 0.f, 100.f);
 	return World->SweepSingleByChannel(Hit, Bumper + Up, Bumper + Up + Axis * 200.f, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(60.f), Params);
+}
+
+// ---------------------------------------------------------------- Squad tactics (TacticsRules.h)
+
+void AIronSiegeAIController::TickTactics(float DeltaSeconds, APawn* MyPawn, AActor* Target, IIronVehicle* Vehicle)
+{
+	const IronTactics::Tuning Tuning;
+	if (WeavePhase < 0.f)
+	{
+		// Each car swerves out of step with the others.
+		WeavePhase = static_cast<float>(GetUniqueID() % 628) / 100.f;
+	}
+	WeaveClock += DeltaSeconds;
+
+	// The target's velocity from how it moved (Chaos does not report a car's velocity reliably on
+	// the game thread), smoothed over a quarter of a second or so.
+	const FVector Now = Target->GetActorLocation();
+	if (TrackedTarget.Get() != Target)
+	{
+		TrackedTarget = Target;
+		TargetVelocity = FVector::ZeroVector;
+	}
+	else if (DeltaSeconds > 0.f)
+	{
+		const FVector Step = (Now - TrackedPrevious) / DeltaSeconds;
+		TargetVelocity = FMath::Lerp(TargetVelocity, FVector(Step.X, Step.Y, 0.f), FMath::Min(1.f, DeltaSeconds * 4.f));
+	}
+	TrackedPrevious = Now;
+
+	// The player's car is the threat: the one whose sights this car weaves out of and runs from.
+	const AWarVehiclePawn* PlayerCar = Cast<AWarVehiclePawn>(UGameplayStatics::GetPlayerPawn(this, 0));
+	const bool bPlayerAlive = PlayerCar && IronTeams::IsAlive(PlayerCar);
+	bInPlayerSights = false;
+	if (bPlayerAlive)
+	{
+		const FVector Aim = PlayerCar->GetFireDirection();
+		bInPlayerSights = IronTactics::InSights(ToTactics(PlayerCar->GetActorLocation()), { float(Aim.X), float(Aim.Y) }, ToTactics(MyPawn->GetActorLocation()), Tuning);
+	}
+
+	SquadTimer -= DeltaSeconds;
+	if (SquadTimer <= 0.f)
+	{
+		SquadTimer = 0.5f;
+		RefreshSquad(MyPawn, Target);
+	}
+	LaneOverrideLeft = FMath::Max(0.f, LaneOverrideLeft - DeltaSeconds);
+
+	UVehicleHealthComponent* Health = Vehicle->GetHealthComponent();
+	if (!Health || Health->GetMaxHealth() <= 0.f)
+	{
+		return;
+	}
+	// Bosses fight their own way (UIronBossComponent) and never run.
+	const bool bMayRetreat = bTacticsEnabled && bPlayerAlive && !MyPawn->ActorHasTag(TEXT("Boss"));
+	const float ThreatDistance = bPlayerAlive ? float(FVector::Dist2D(PlayerCar->GetActorLocation(), MyPawn->GetActorLocation())) : TNumericLimits<float>::Max();
+	const IronTactics::Mode Before = Morale.State;
+	const float Heal = Morale.Update(Health->GetHealth() / Health->GetMaxHealth(), ThreatDistance, DeltaSeconds, bMayRetreat, Tuning);
+	if (Heal > 0.f)
+	{
+		Health->Repair(Health->GetMaxHealth() * Heal, 0.f);
+	}
+	if (Morale.State != Before)
+	{
+		static const TCHAR* Names[] = { TEXT("engage"), TEXT("retreat"), TEXT("patch") };
+		UE_LOG(LogTemp, Log, TEXT("IronSiege: %s %s (health %.0f / %.0f, player %.0f m away)"), *MyPawn->GetName(), Names[static_cast<int32>(Morale.State)],
+			Health->GetHealth(), Health->GetMaxHealth(), bPlayerAlive ? ThreatDistance / 100.f : -1.f);
+		if (Morale.State == IronTactics::Mode::Retreat)
+		{
+			AnnounceRetreat(MyPawn);
+		}
+	}
+}
+
+void AIronSiegeAIController::RefreshSquad(APawn* MyPawn, AActor* Target)
+{
+	// Every car on this side is a wingman whose body can block this car's shot. Those coming at the
+	// same target and still in the fight share out the lanes, in a fixed order so each keeps its own.
+	Wingmen.Reset();
+	TArray<uint32> Squad;
+	for (TActorIterator<AIronSiegeAIController> It(GetWorld()); It; ++It)
+	{
+		const AIronSiegeAIController* Other = *It;
+		APawn* OtherPawn = Other->GetPawn();
+		if (!OtherPawn || !IronTeams::IsAlive(OtherPawn) || IronTeams::IsPlayerSide(OtherPawn) != IronTeams::IsPlayerSide(MyPawn))
+		{
+			continue;
+		}
+		if (OtherPawn != MyPawn)
+		{
+			Wingmen.Add(OtherPawn);
+		}
+		if (Other->ConvoyPoints.Num() == 0 && !Other->IsFallingBack() && Other->FindTarget() == Target)
+		{
+			Squad.Add(Other->GetUniqueID());
+		}
+	}
+	Squad.Sort();
+	const int32 Index = Squad.IndexOfByKey(GetUniqueID());
+	Lane = IronTactics::LaneFor(Index == INDEX_NONE ? 0 : Index, Squad.Num());
+}
+
+FVector AIronSiegeAIController::TacticalGoal(APawn* MyPawn, AActor* Target, float Distance, float SpeedKph) const
+{
+	const IronTactics::Tuning Tuning;
+	const IronTactics::Vec2 Me = ToTactics(MyPawn->GetActorLocation());
+	const IronTactics::Vec2 TargetPos = ToTactics(Target->GetActorLocation());
+	// Lead a moving target only while still closing in; at the stand-off, face where it is.
+	IronTactics::Vec2 Aim = TargetPos;
+	if (Distance > StoppingDistance + 500.f)
+	{
+		Aim = IronTactics::InterceptPoint(Me, TargetPos, { float(TargetVelocity.X), float(TargetVelocity.Y) }, SpeedKph / 0.036f, Tuning);
+	}
+	if (LaneOverrideLeft > 0.f)
+	{
+		// Clearing a blocked line of fire: a fixed step to the side, close in as well as far out.
+		const IronTactics::Vec2 Side = IronTactics::RightOf(IronTactics::Normal(IronTactics::Sub(Aim, Me)));
+		Aim = IronTactics::Add(Aim, IronTactics::Scale(Side, LaneOverride * 700.f));
+	}
+	else
+	{
+		Aim = IronTactics::PincerGoal(Me, Aim, Lane, Tuning);
+	}
+	return FVector(Aim.X, Aim.Y, MyPawn->GetActorLocation().Z);
+}
+
+bool AIronSiegeAIController::IsShotBlocked(APawn* MyPawn, AActor* Target) const
+{
+	TArray<IronTactics::Vec2, TInlineAllocator<16>> Others;
+	for (const TWeakObjectPtr<APawn>& Wingman : Wingmen)
+	{
+		if (const APawn* Pawn = Wingman.Get(); Pawn && Pawn != Target)
+		{
+			Others.Add(ToTactics(Pawn->GetActorLocation()));
+		}
+	}
+	return IronTactics::LineBlocked(ToTactics(MyPawn->GetActorLocation()), ToTactics(Target->GetActorLocation()), Others.GetData(), Others.Num());
+}
+
+void AIronSiegeAIController::AnnounceRetreat(APawn* MyPawn) const
+{
+	// Tell the player now and then (not for every car) that a wounded enemy is getting away to
+	// patch itself up: chasing it down is the play.
+	static double LastNotice = -1000.0;
+	const UWorld* World = GetWorld();
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	const APawn* Player = PC ? PC->GetPawn() : nullptr;
+	if (!World || !Player || FVector::Dist(Player->GetActorLocation(), MyPawn->GetActorLocation()) > 7000.f)
+	{
+		return;
+	}
+	const double Now = World->GetTimeSeconds();
+	if (Now < LastNotice)
+	{
+		LastNotice = -1000.0; // A new level started the clock again.
+	}
+	if (Now - LastNotice < 10.0)
+	{
+		return;
+	}
+	LastNotice = Now;
+	if (AIronSiegeHUD* HUD = PC->GetHUD<AIronSiegeHUD>())
+	{
+		HUD->ShowNotice(IronText::Str(TEXT("NoticeRetreat"), TEXT("ENEMY FALLING BACK TO REPAIR - FINISH IT")), FLinearColor(1.f, 0.75f, 0.3f));
+	}
 }

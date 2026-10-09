@@ -1042,6 +1042,12 @@ void UIronSiegeCheatManager::DebugStreetRouting(int32 bEnabled)
 	UE_LOG(LogTemp, Log, TEXT("IronSiege: street routing %s"), bEnabled ? TEXT("on") : TEXT("off"));
 }
 
+void UIronSiegeCheatManager::DebugTactics(int32 bEnabled)
+{
+	AIronSiegeAIController::bTacticsEnabled = bEnabled != 0;
+	UE_LOG(LogTemp, Log, TEXT("IronSiege: enemy squad tactics %s"), bEnabled ? TEXT("on") : TEXT("off"));
+}
+
 void UIronSiegeCheatManager::DebugTrackEnemies(float Seconds)
 {
 	TWeakObjectPtr<APlayerController> WeakPC = GetOuterAPlayerController();
