@@ -62,6 +62,8 @@ private:
 
 	// An enemy railgun is charging at the player: a flashing cyan banner and a bracket on the shooter.
 	void DrawRailWarning(const class AWarVehiclePawn* Car);
+	// The boss winding up a slam or an EMP with the player inside its reach: get clear.
+	void DrawBossWarning(const AIronSiegeGameMode* GameMode);
 
 	// Arrowhead at the edge of a ring around the screen centre, pointing at something off screen.
 	void DrawEdgeArrow(const FVector& WorldLocation, const FLinearColor& Color);

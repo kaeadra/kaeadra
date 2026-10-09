@@ -173,6 +173,15 @@ public:
 	UFUNCTION(Exec)
 	void DebugSpawnSpecialist(int32 Kind, float Distance);
 
+	// A boss with its phases and signature attacks, Distance cm toward the middle of the map:
+	// 0 Juggernaut, 1 Raven, 2 Iron Baron, 3 Iron Crown.
+	UFUNCTION(Exec)
+	void DebugSpawnBoss(int32 Boss, float Distance);
+
+	// Sets the living boss's health to a fraction (armour off), to step it through its phases.
+	UFUNCTION(Exec)
+	void DebugBossHealth(float Fraction);
+
 	// Test run: takes one HUD screenshot the moment an enemy railgun starts charging at the player.
 	UFUNCTION(Exec)
 	void DebugShotOnRailCharge();

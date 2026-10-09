@@ -173,6 +173,16 @@ const TMap<FString, FString>& ArabicTable()
 		{ TEXT("BossBaron"), TEXT("البارون الحديدي") },
 		{ TEXT("BossCrown"), TEXT("التاج الحديدي") },
 
+		// ---- Boss phases (BossRules.h)
+		{ TEXT("BossJugP2"), TEXT("العملاق يتجاهل الضربات ويستدعي المساعدة. ابتعد عن مداه حين يضرب الأرض!") },
+		{ TEXT("BossJugP3"), TEXT("إنه يتفكّك، ويطلق كل ما لديه. أجهز عليه!") },
+		{ TEXT("BossRavenP2"), TEXT("حسنًا. لا طلقات تحذيرية بعد الآن: طلقة لك وطلقة لظلّك.") },
+		{ TEXT("BossRavenP3"), TEXT("تريد مطاردتي؟ إذن قُد فوق ألغامي.") },
+		{ TEXT("BossBaronP2"), TEXT("خدشتَ الطلاء. الآن تخرج مدافع البارون.") },
+		{ TEXT("BossBaronP3"), TEXT("كفى! كل مدفع وكل رجل، ادفنوا تلك السيارة!") },
+		{ TEXT("BossCrownP2"), TEXT("التاج أكثر من مجرّد درع. اشعر بمحرّكك يموت.") },
+		{ TEXT("BossCrownP3"), TEXT("لن أسقط مرّتين! أحرقوا كل شيء!") },
+
 		// ---- The crew
 		{ TEXT("DriverRinName"), TEXT("رين كوروساوا") },
 		{ TEXT("DriverRinBlurb"), TEXT("متسابقة شوارع صارت كشّافة. سريعة، صاخبة، ولا تضغط الفرامل أولًا.") },

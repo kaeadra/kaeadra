@@ -30,6 +30,7 @@
 #include "Sound/SoundBase.h"
 #include "IronMissionDirector.h"
 #include "IronTeams.h"
+#include "IronBossComponent.h"
 
 void AIronSiegeHUD::DrawHUD()
 {
@@ -113,6 +114,7 @@ void AIronSiegeHUD::DrawHUD()
 	DrawLockOn(Cast<AWarVehiclePawn>(GetOwningPawn()));
 	DrawMissileWarning(Cast<AWarVehiclePawn>(GetOwningPawn()));
 	DrawRailWarning(Cast<AWarVehiclePawn>(GetOwningPawn()));
+	DrawBossWarning(GameMode);
 	if (!UserSettings || UserSettings->bDamageNumbers)
 	{
 		DrawDamageNumbers();
@@ -765,9 +767,78 @@ void AIronSiegeHUD::DrawBossBar(const AIronSiegeGameMode* GameMode)
 	FCanvasTileItem Back(TopLeft - FVector2D(2.f, 2.f), FVector2D(W + 4.f, H + 4.f), FLinearColor(0.f, 0.f, 0.f, 0.7f));
 	Back.BlendMode = SE_BLEND_Translucent;
 	Canvas->DrawItem(Back);
-	FCanvasTileItem Bar(TopLeft, FVector2D(W * Frac, H), FLinearColor(0.95f, 0.55f, 0.1f));
+	// The phase shows in the bar: blue while its shield is up, red in the last phase.
+	const UIronBossComponent* Brain = Boss->FindComponentByClass<UIronBossComponent>();
+	FLinearColor Fill(0.95f, 0.55f, 0.1f);
+	if (Brain && Brain->IsShielded())
+	{
+		Fill = FLinearColor(0.35f, 0.7f, 1.f);
+	}
+	else if (Brain && Brain->GetPhase() >= IronBoss::PhaseCount)
+	{
+		Fill = FLinearColor(1.f, 0.25f, 0.12f);
+	}
+	FCanvasTileItem Bar(TopLeft, FVector2D(W * Frac, H), Fill);
 	Canvas->DrawItem(Bar);
-	DrawTextLine(TopLeft + FVector2D(0.f, -20.f), GameMode->GetBossName(), FLinearColor(1.f, 0.6f, 0.2f));
+	FString Title = GameMode->GetBossName();
+	if (Brain)
+	{
+		// A notch where each phase begins.
+		for (int32 i = 1; i < IronBoss::PhaseCount; ++i)
+		{
+			const float NotchX = TopLeft.X + W * (1.f - static_cast<float>(i) / IronBoss::PhaseCount);
+			FCanvasLineItem Notch(FVector2D(NotchX, TopLeft.Y - 3.f), FVector2D(NotchX, TopLeft.Y + H + 3.f));
+			Notch.SetColor(FLinearColor::White);
+			Notch.LineThickness = 2.f;
+			Canvas->DrawItem(Notch);
+		}
+		Title += FString::Printf(TEXT("   %s %d/%d"), *IronText::Str(TEXT("HudBossPhase"), TEXT("PHASE")), Brain->GetPhase(), IronBoss::PhaseCount);
+		if (Brain->IsShielded())
+		{
+			Title += TEXT("   ") + IronText::Str(TEXT("HudBossShield"), TEXT("SHIELDED"));
+		}
+	}
+	DrawTextLine(TopLeft + FVector2D(0.f, -20.f), Title, FLinearColor(1.f, 0.6f, 0.2f));
+}
+
+void AIronSiegeHUD::DrawBossWarning(const AIronSiegeGameMode* GameMode)
+{
+	const APawn* Boss = GameMode ? GameMode->GetBoss() : nullptr;
+	const UIronBossComponent* Brain = Boss ? Boss->FindComponentByClass<UIronBossComponent>() : nullptr;
+	const APawn* Me = GetOwningPawn();
+	if (!Brain || !Me || !Canvas)
+	{
+		return;
+	}
+	const float Distance = FVector::Dist2D(Boss->GetActorLocation(), Me->GetActorLocation());
+	FString Banner;
+	FLinearColor Color;
+	float Progress = 0.f;
+	if (Brain->IsSlamWinding() && Distance <= Brain->GetSlamRadius() * 1.1f)
+	{
+		Banner = IronText::Str(TEXT("HudSlamWarn"), TEXT("SHOCKWAVE - GET CLEAR!"));
+		Color = FLinearColor(1.f, 0.55f, 0.15f);
+		Progress = Brain->GetSlamProgress();
+	}
+	else if (Brain->IsEmpWinding() && Distance <= Brain->GetEmpRadius() * 1.1f)
+	{
+		Banner = IronText::Str(TEXT("HudEmpWarn"), TEXT("EMP CHARGING - GET CLEAR!"));
+		Color = FLinearColor(0.45f, 0.75f, 1.f);
+		Progress = Brain->GetEmpProgress();
+	}
+	else
+	{
+		return;
+	}
+	// Below the railgun warning, with a bar that fills until it lands.
+	const bool bFlashOn = FMath::Fmod(FPlatformTime::Seconds(), 0.2) < 0.12;
+	const FVector2D Size = MeasureTextLine(Banner, 2);
+	const FVector2D At((Canvas->ClipX - Size.X) * 0.5f, Canvas->ClipY * 0.35f);
+	FCanvasTileItem Strip(FVector2D(At.X - 16.f, At.Y - 6.f), FVector2D(Size.X + 32.f, Size.Y + 26.f), FLinearColor(0.f, 0.f, 0.f, 0.6f));
+	Strip.BlendMode = SE_BLEND_Translucent;
+	Canvas->DrawItem(Strip);
+	DrawTextLine(At, Banner, bFlashOn ? Color : FLinearColor::White, 2);
+	DrawBar(FVector2D(At.X, At.Y + Size.Y + 6.f), FVector2D(Size.X, 6.f), Progress, Color);
 }
 
 void AIronSiegeHUD::DrawVehicleBars(const AWarVehiclePawn* Car, float X, float Y)

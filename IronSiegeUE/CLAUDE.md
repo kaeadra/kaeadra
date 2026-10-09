@@ -38,12 +38,14 @@ Build the editor target (close the editor first, or use Live Coding):
 ```
 "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" IronSiegeEditor Win64 Development "C:\Users\ibrah\Desktop\kaeadra\IronSiegeUE\IronSiege.uproject" -waitmutex
 ```
-Offline rules tests (any machine with g++/clang, from `IronSiegeUE/Tests`):
+Offline rules tests (any machine with g++/clang, from `IronSiegeUE/Tests`), one per test file:
 ```
-g++ -std=c++20 -Wall -Wextra -I../Source/IronSiege campaign_ranks_test.cpp -o t && ./t
+g++ -std=c++20 -Wall -Wextra -DPI=3.14159f -I../Source/IronSiege boss_rules_test.cpp -o t && ./t
 ```
+`-DPI=...` stands in for Unreal's `PI` macro: a rules header that names anything `PI` builds offline
+but breaks the Unreal build, and this catches it.
 Useful console commands in a development build: `DebugCampaign unlock 3`, `DebugDriverXp -1 3000`,
-and the other `Debug*` commands in `IronSiegeCheatManager.h`.
+`DebugSpawnBoss 3 4000`, `DebugBossHealth 0.3`, and the other `Debug*` commands in `IronSiegeCheatManager.h`.
 
 ## Code conventions
 
@@ -53,4 +55,5 @@ and the other `Debug*` commands in `IronSiegeCheatManager.h`.
 - Every player-visible string goes through `IronText::Str` / `TLOC` with a key; its Arabic goes in
   `IronSiegeText.cpp` (UI) or `IronSiegeStory.cpp` (campaign, crew, story screens).
 - The HUD is Canvas-drawn (`IronSiegeHUD*.cpp`), menus are Slate (`SIronSettingsMenu.cpp`).
-- Campaign data: `MissionRules.h`; drivers, barks: `CrewRules.h`; ranks: `RankRules.h`.
+- Campaign data: `MissionRules.h`; drivers, barks: `CrewRules.h`; ranks: `RankRules.h`;
+  boss phases and attacks: `BossRules.h` (applied by `UIronBossComponent`).

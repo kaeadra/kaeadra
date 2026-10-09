@@ -26,6 +26,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "CrewRules.h"
 #include "IronMissionDirector.h"
+#include "IronBossComponent.h"
 #include "IronSiegeStory.h"
 #include "MissionRules.h"
 
@@ -245,6 +246,7 @@ APawn* AIronSiegeGameMode::SpawnMissionBoss(int32 Boss, const FVector& Location,
 	LiveEnemies.Add(Car);
 	BossPawn = Car;
 	BossKind = Boss;
+	ArmBoss(Car, Boss);
 	NotifyPlayer(FString::Printf(TEXT("%s!"), *GetBossName()), FLinearColor(1.f, 0.3f, 0.2f));
 	PlayerBark(static_cast<int32>(IronCrew::Bark::Boss));
 	return Car;
@@ -456,6 +458,7 @@ void AIronSiegeGameMode::StartNextWave()
 			LiveEnemies.Add(Boss);
 			BossPawn = Boss;
 			BossKind = IronMissions::BossNone;
+			ArmBoss(Boss, IronMissions::BossNone);
 			NotifyPlayer(IronText::Str(TEXT("NoticeBoss"), TEXT("JUGGERNAUT INBOUND")), FLinearColor(1.f, 0.3f, 0.2f));
 			PlayerBark(static_cast<int32>(IronCrew::Bark::Boss));
 		}
@@ -578,6 +581,17 @@ void AIronSiegeGameMode::EndMatch()
 	}
 	UE_LOG(LogTemp, Log, TEXT("IronSiege: match over - wave %d, kills %d"), Wave, Kills);
 	AwardDriverXp();
+}
+
+void AIronSiegeGameMode::ArmBoss(APawn* Boss, int32 MissionBoss)
+{
+	if (!Cast<AWarVehiclePawn>(Boss))
+	{
+		return;
+	}
+	UIronBossComponent* Brain = NewObject<UIronBossComponent>(Boss, TEXT("BossBrain"));
+	Brain->RegisterComponent();
+	Brain->Setup(IronBoss::KindForMissionBoss(MissionBoss));
 }
 
 void AIronSiegeGameMode::AwardDriverXp()

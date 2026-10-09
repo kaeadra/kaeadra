@@ -955,6 +955,34 @@ void UIronSiegeCheatManager::DebugSpawnLine(int32 Count, float Spacing)
 	}
 }
 
+void UIronSiegeCheatManager::DebugSpawnBoss(int32 Boss, float Distance)
+{
+	AIronSiegeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AIronSiegeGameMode>() : nullptr;
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
+	if (!GameMode || !Player)
+	{
+		return;
+	}
+	// Toward the middle of the map, like the specialists: the player starts sit near the corners.
+	const FVector ToCentre = (-Player->GetActorLocation()).GetSafeNormal2D();
+	const FVector At = Player->GetActorLocation() + (ToCentre.IsNearlyZero() ? Player->GetActorForwardVector() : ToCentre) * (Distance != 0.f ? FMath::Abs(Distance) : 4000.f) + FVector(0.f, 0.f, 60.f);
+	const APawn* Spawned = GameMode->SpawnMissionBoss(FMath::Clamp(Boss, 0, IronMissions::BossCount - 1), At, (Player->GetActorLocation() - At).GetSafeNormal2D().Rotation());
+	UE_LOG(LogTemp, Log, TEXT("IronSiege: debug boss %d %s"), Boss, Spawned ? *Spawned->GetName() : TEXT("FAILED (no chassis class set?)"));
+}
+
+void UIronSiegeCheatManager::DebugBossHealth(float Fraction)
+{
+	const AIronSiegeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AIronSiegeGameMode>() : nullptr;
+	if (const IIronVehicle* Boss = Cast<IIronVehicle>(GameMode ? GameMode->GetBoss() : nullptr))
+	{
+		if (UVehicleHealthComponent* Health = Boss->GetHealthComponent())
+		{
+			Health->SetHealthFractionForTest(Fraction);
+			UE_LOG(LogTemp, Log, TEXT("IronSiege: boss health set to %.0f / %.0f"), Health->GetHealth(), Health->GetMaxHealth());
+		}
+	}
+}
+
 void UIronSiegeCheatManager::DebugSpawnSpecialist(int32 Kind, float Distance)
 {
 	if (AIronSiegeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AIronSiegeGameMode>() : nullptr)

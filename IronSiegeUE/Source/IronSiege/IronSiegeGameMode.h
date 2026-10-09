@@ -233,6 +233,8 @@ private:
 	void PlayerBark(int32 Kind) const;
 	// Experience for the driver once the match is over (EndMatch).
 	void AwardDriverXp();
+	// Gives a freshly spawned boss its phases and signature attacks (UIronBossComponent).
+	void ArmBoss(APawn* Boss, int32 MissionBoss);
 	int32 PlayerDriver = -1;
 	int32 XpGained = 0;
 	int32 RankReached = 0;
